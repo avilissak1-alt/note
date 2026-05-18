@@ -367,8 +367,8 @@ console.log('Dashboard render - notesMensuelles:', notesMensuelles);
                 {Array.isArray(colonnesBoker) && colonnesBoker.map(col => (
                   <th key={col.id} style={{
                     padding: '10px 16px',
-                    backgroundColor: '#8b5cf6',
-                    color: 'white',
+                    backgroundColor: 'rgba(125, 211, 252, 0.12)',
+                    color: '#7dd3fc',
                     fontWeight: 'bold',
                     textAlign: 'center',
                     borderBottom: '2px solid var(--border-color)',
@@ -398,8 +398,8 @@ console.log('Dashboard render - notesMensuelles:', notesMensuelles);
                 {Array.isArray(colonnesFormation) && colonnesFormation.map(col => (
                   <th key={col.id} style={{
                     padding: '10px 16px',
-                    backgroundColor: '#10b981',
-                    color: 'white',
+                    backgroundColor: 'rgba(251, 191, 36, 0.12)',
+                    color: '#fbbf24',
                     fontWeight: 'bold',
                     textAlign: 'center',
                     borderBottom: '2px solid var(--border-color)',

@@ -184,9 +184,9 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
               {/* LIGNE 1 — Groupes */}
               <tr>
                 <th rowSpan={3} style={{ ...thBase, textAlign: 'left', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-header)', position: 'sticky', left: 0, zIndex: 4, minWidth: '160px', verticalAlign: 'middle' }}>Nom de l'élève</th>
-                <th colSpan={colonnesBoker.length * 4} style={{ ...thBase, backgroundColor: '#7c3aed', color: 'white' }}>בוקר</th>
+                <th colSpan={colonnesBoker.length * 4} style={{ ...thBase, backgroundColor: 'rgba(125, 211, 252, 0.12)', color: '#7dd3fc' }}>בוקר</th>
                 <th rowSpan={3} style={{ ...thBase, backgroundColor: '#5b21b6', color: 'white', minWidth: '110px', verticalAlign: 'middle' }}>Moy. בוקר</th>
-                <th colSpan={colonnesFormation.length * 4} style={{ ...thBase, backgroundColor: '#059669', color: 'white' }}>Formation Professionnelle</th>
+                <th colSpan={colonnesFormation.length * 4} style={{ ...thBase, backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' }}>Formation Professionnelle</th>
                 <th rowSpan={3} style={{ ...thBase, backgroundColor: '#065f46', color: 'white', minWidth: '110px', verticalAlign: 'middle' }}>Moy. Formation</th>
                 <th rowSpan={3} style={{ ...thBase, backgroundColor: '#1f2937', color: 'white', minWidth: '130px', verticalAlign: 'middle' }}>Moyenne Générale</th>
                 <th rowSpan={3} style={{ ...thBase, backgroundColor: 'var(--bg-secondary)', color: 'var(--text-header)', position: 'sticky', right: 0, zIndex: 4, minWidth: '120px', verticalAlign: 'middle' }}>Actions</th>
@@ -195,10 +195,10 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
               {/* LIGNE 2 — Matières */}
               <tr>
                 {Array.isArray(colonnesBoker) && colonnesBoker.map(col => (
-                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: '#8b5cf6', color: 'white', direction: 'rtl' }}>{col.nom}</th>
+                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: 'rgba(125, 211, 252, 0.12)', color: '#7dd3fc', direction: 'rtl' }}>{col.nom}</th>
                 ))}
                 {Array.isArray(colonnesFormation) && colonnesFormation.map(col => (
-                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: '#10b981', color: 'white' }}>{col.nom}</th>
+                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' }}>{col.nom}</th>
                 ))}
               </tr>
               
@@ -207,14 +207,14 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
                 {Array.isArray(colonnesBoker) && colonnesBoker.map(col => (
                   <React.Fragment key={col.id}>
                     {[1, 2, 3, 4].map(noteNum => (
-                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: '#6366f1', color: 'white', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
+                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: 'rgba(125, 211, 252, 0.12)', color: '#7dd3fc', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
                     ))}
                   </React.Fragment>
                 ))}
                 {Array.isArray(colonnesFormation) && colonnesFormation.map(col => (
                   <React.Fragment key={col.id}>
                     {[1, 2, 3, 4].map(noteNum => (
-                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: '#047857', color: 'white', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
+                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
                     ))}
                   </React.Fragment>
                 ))}

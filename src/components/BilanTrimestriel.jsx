@@ -102,7 +102,7 @@ function BilanTrimestriel({ onBack, theme, eleves, setEleves, colonnesBoker = []
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '64px' }}>
           <h1 style={{ color: 'var(--text-primary)', fontSize: '1.4rem', fontWeight: 'bold' }}>📈 Bilan Trimestriel</h1>
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => setShowModal(true)} style={{ padding: '8px 16px', borderRadius: '8px', backgroundColor: '#059669', color: 'white', border: 'none', cursor: 'pointer' }}>+ Ajouter un contrôle</button>
+            <button onClick={() => setShowModal(true)} style={{ padding: '8px 16px', borderRadius: '8px', backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24', border: 'none', cursor: 'pointer' }}>+ Ajouter un contrôle</button>
             <button onClick={onBack} style={{ padding: '8px 16px', borderRadius: '8px', backgroundColor: '#6b7280', color: 'white', border: 'none', cursor: 'pointer' }}>← Retour</button>
           </div>
         </div>
@@ -155,9 +155,9 @@ function BilanTrimestriel({ onBack, theme, eleves, setEleves, colonnesBoker = []
               <tr>
                 {trimestres.map(t => (
                   <React.Fragment key={t.key}>
-                    <th colSpan={colonnesBoker?.length} style={{ ...thBase, backgroundColor: '#7c3aed', color: 'white', fontSize: '11px' }}>בוקר</th>
+                    <th colSpan={colonnesBoker?.length} style={{ ...thBase, backgroundColor: 'rgba(125, 211, 252, 0.12)', color: '#7dd3fc', fontSize: '11px' }}>בוקר</th>
                     <th rowSpan={2} style={{ ...thBase, backgroundColor: '#5b21b6', color: 'white', minWidth: '100px', verticalAlign: 'middle' }}>Moy. בוקר</th>
-                    <th colSpan={colonnesFormation?.length} style={{ ...thBase, backgroundColor: '#059669', color: 'white', fontSize: '11px' }}>Formation Pro</th>
+                    <th colSpan={colonnesFormation?.length} style={{ ...thBase, backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24', fontSize: '11px' }}>Formation Pro</th>
                     <th rowSpan={2} style={{ ...thBase, backgroundColor: '#065f46', color: 'white', minWidth: '100px', verticalAlign: 'middle' }}>Moy. Formation</th>
                   </React.Fragment>
                 ))}
@@ -168,7 +168,7 @@ function BilanTrimestriel({ onBack, theme, eleves, setEleves, colonnesBoker = []
                 {trimestres.map(t => (
                   <React.Fragment key={t.key}>
                     {colonnesBoker.map(col => (
-                      <th key={`${t.key}-${col.id}`} style={{ ...thBase, backgroundColor: '#8b5cf6', color: 'white', direction: 'rtl', minWidth: '90px', fontSize: '11px' }}>
+                      <th key={`${t.key}-${col.id}`} style={{ ...thBase, backgroundColor: 'rgba(125, 211, 252, 0.12)', color: '#7dd3fc', direction: 'rtl', minWidth: '90px', fontSize: '11px' }}>
                         <div>{col.nom}</div>
                         {col.id.startsWith('custom_') && t.key === 'T1' && (
                           <button onClick={() => supprimerControle(col.id, 'boker')} style={{ fontSize: '10px', color: '#fca5a5', background: 'none', border: 'none', cursor: 'pointer' }}>🗑</button>
@@ -176,7 +176,7 @@ function BilanTrimestriel({ onBack, theme, eleves, setEleves, colonnesBoker = []
                       </th>
                     ))}
                     {colonnesFormation.map(col => (
-                      <th key={`${t.key}-${col.id}`} style={{ ...thBase, backgroundColor: '#10b981', color: 'white', minWidth: '90px', fontSize: '11px' }}>
+                      <th key={`${t.key}-${col.id}`} style={{ ...thBase, backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24', minWidth: '90px', fontSize: '11px' }}>
                         <div>{col.nom}</div>
                         {col.id.startsWith('custom_') && t.key === 'T1' && (
                           <button onClick={() => supprimerControle(col.id, 'formation')} style={{ fontSize: '10px', color: '#fca5a5', background: 'none', border: 'none', cursor: 'pointer' }}>🗑</button>
