@@ -1,19 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import Login from './components/Login.jsx';
-import Dashboard from './components/Dashboard.jsx';
-import BilanMensuel from './components/BilanMensuel.jsx';
-import BilanTrimestriel from './components/BilanTrimestriel.jsx';
-import EleveSelectionPage from './components/EleveSelectionPage.jsx';
-import EleveAnalysePage from './components/EleveAnalysePage.jsx';
-import BandeauSemaine from './components/BandeauSemaine.jsx';
+import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import AuthPage from './pages/AuthPage.jsx';
+import Dashboard from './pages/Dashboard.jsx';
+import BilanMensuel from './components/charts/BilanMensuel.jsx';
+import BilanTrimestriel from './components/charts/BilanTrimestriel.jsx';
+import EleveSelectionPage from './components/ui/EleveSelectionPage.jsx';
+import EleveAnalysePage from './pages/EleveAnalysePage.jsx';
+import ProfesseurPage from './pages/ProfesseurPage.jsx';
+import BandeauSemaine from './components/ui/BandeauSemaine.jsx';
+import { studentsService, gradesService } from './services/supabaseService.js';
 import './index.css';
 
-function App() {
-  const [currentPage, setCurrentPage] = useState('login');
+function AppContent() {
+  const { user, loading, signOut, initialized } = useAuth();
+  const [currentPage, setCurrentPage] = useState('dashboard');
   const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('theme') || 'light'
+    return localStorage.getItem('theme') || 'dark'
   });
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [eleves, setEleves] = useState([]);
   const [colonnesBoker, setColonnesBoker] = useState([
     { id: 'boker_1', nom: 'חסידות בוקר', matiere: 'boker_sadot' },
@@ -29,44 +33,100 @@ function App() {
     { id: 'form_5', nom: 'Français', matiere: 'francais' },
   ]);
   const [semaineActuelle, setSemaineActuelle] = useState(1);
-  const [notesMensuelles, setNotesMensuelles] = useState(() => {
-    return JSON.parse(localStorage.getItem('notesMensuelles')) || {};
-  });
+  const [notesMensuelles, setNotesMensuelles] = useState({});
   const [selectedEleve, setSelectedEleve] = useState(null);
+  const [dataLoading, setDataLoading] = useState(false);
 
+  // Gestion robuste de la session
   useEffect(() => {
-    localStorage.setItem(
-      'notesMensuelles',
-      JSON.stringify(notesMensuelles)
-    );
-  }, [notesMensuelles]);
+    if (initialized && !loading) {
+      setIsInitialized(true);
+      
+      // Redirection automatique selon l'état de l'utilisateur
+      if (user) {
+        // Utilisateur connecté : charger ses données
+        loadUserData();
+        setCurrentPage('dashboard');
+      } else {
+        // Utilisateur non connecté : réinitialiser et rediriger vers login
+        setEleves([]);
+        setNotesMensuelles({});
+        setCurrentPage('auth');
+      }
+    }
+  }, [user, loading, initialized]);
 
-  // Initialisation du thème et de l'authentification
+  // Maintenir la session après refresh
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    const savedAuth = localStorage.getItem('isAuthenticated') === 'true';
-    const savedEleves = localStorage.getItem('eleves');
-    const savedBoker = localStorage.getItem('colonnesBoker');
-    const savedFormation = localStorage.getItem('colonnesFormation');
+    const handleBeforeUnload = () => {
+      // Sauvegarder l'état avant le refresh
+      if (user) {
+        sessionStorage.setItem('lastActiveUser', user.id);
+        sessionStorage.setItem('lastActiveTime', Date.now().toString());
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [user]);
+
+  const loadUserData = async () => {
+    if (!user) return;
     
-    setTheme(savedTheme);
-    if (savedAuth) {
-      setIsAuthenticated(true);
-      setCurrentPage('dashboard');
+    setDataLoading(true);
+    try {
+      // Charger les élèves depuis Supabase
+      const supabaseStudents = await studentsService.getAll(user.id);
+      const formattedStudents = supabaseStudents.map(student => {
+        // Gérer l'ancienne et la nouvelle structure
+        if (student.first_name && student.last_name) {
+          return {
+            id: student.id,
+            firstName: student.first_name,
+            lastName: student.last_name,
+          };
+        } else if (student.name) {
+          // Nouvelle structure : diviser le nom en firstName/lastName
+          const nameParts = student.name.split(' ');
+          return {
+            id: student.id,
+            firstName: nameParts[0] || '',
+            lastName: nameParts.slice(1).join(' ') || '',
+          };
+        } else {
+          // Fallback
+          return {
+            id: student.id,
+            firstName: 'Élève',
+            lastName: 'Inconnu',
+          };
+        }
+      });
+      setEleves(formattedStudents);
+
+      // Charger les notes depuis Supabase (NOUVELLE STRUCTURE)
+      const gradesData = await gradesService.getAll(user.id);
+      setNotesMensuelles(gradesData);
+      
+      // Synchroniser uniquement les élèves locaux (pas les notes)
+      const localEleves = localStorage.getItem(`eleves_${user.id}`);
+      
+      if (localEleves) {
+        const parsedLocalEleves = JSON.parse(localEleves);
+        // Fusionner les élèves locaux avec Supabase
+        const mergedEleves = [...formattedStudents];
+        parsedLocalEleves.forEach(localEleve => {
+          if (!formattedStudents.find(s => s.id === localEleve.id)) {
+            // L'élève local n'existe pas dans Supabase, l'ajouter
+            mergedEleves.push(localEleve);
+          }
+        });
+        setEleves(mergedEleves);
+      }
+    } finally {
+      setDataLoading(false);
     }
-    
-    if (savedEleves) {
-      setEleves(JSON.parse(savedEleves));
-    }
-    
-    if (savedBoker) {
-      setColonnesBoker(JSON.parse(savedBoker));
-    }
-    
-    if (savedFormation) {
-      setColonnesFormation(JSON.parse(savedFormation));
-    }
-  }, []);
+  };
 
   // Appliquer le thème au document
   useEffect(() => {
@@ -92,38 +152,49 @@ function App() {
     }
   };
 
-  // Sauvegarde des élèves
-  useEffect(() => {
-    localStorage.setItem('eleves', JSON.stringify(eleves));
-  }, [eleves]);
+  // Afficher la page de chargement pendant la vérification de la session
+  if (loading || !isInitialized) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        backgroundColor: '#0a0a0a',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'Palatino, Palatino Linotype, serif'
+      }}>
+        <div style={{
+          color: '#fbbf24',
+          fontSize: '1.5rem',
+          textAlign: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '1rem'
+        }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            border: '3px solid rgba(251, 191, 36, 0.3)',
+            borderTop: '3px solid #fbbf24',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }}></div>
+          <div>Vérification de la session...</div>
+        </div>
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
-  // Sauvegarde des colonnes
-  useEffect(() => {
-    localStorage.setItem('colonnesBoker', JSON.stringify(colonnesBoker));
-  }, [colonnesBoker]);
-
-  useEffect(() => {
-    localStorage.setItem('colonnesFormation', JSON.stringify(colonnesFormation));
-  }, [colonnesFormation]);
-
-  
-  
-  const handleLogin = () => {
-    setIsAuthenticated(true);
-    setCurrentPage('dashboard');
-    localStorage.setItem('isAuthenticated', 'true');
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentPage('login');
-    localStorage.setItem('isAuthenticated', 'false');
-  };
-
-  
-  // Rendu des composants selon la page actuelle
-  if (currentPage === 'login') {
-    return <Login onLogin={handleLogin} theme={theme} />;
+  // Redirection automatique vers AuthPage si non connecté
+  if (!user) {
+    return <AuthPage />;
   }
 
   // Wrapper pour les pages avec bandeau
@@ -153,6 +224,7 @@ function App() {
           notesMensuelles={notesMensuelles}
           setNotesMensuelles={setNotesMensuelles}
           semaineActuelle={semaineActuelle}
+          userId={user.id}
         />  
       </PageAvecBandeau>
     );
@@ -207,28 +279,46 @@ function App() {
     );
   }
 
+  if (currentPage === 'professeur') {
+    return (
+      <ProfesseurPage 
+        user={user}
+        onLogout={signOut}
+        onBack={() => setCurrentPage('dashboard')}
+      />
+    );
+  }
+
   // Page par défaut : Dashboard
   return (
-    <PageAvecBandeau>
-      <Dashboard 
-        onMensuel={() => setCurrentPage('mensuel')} 
-        onTrimestriel={() => setCurrentPage('trimestriel')}
-        onInspectEleve={() => setCurrentPage('inspect-eleve-selection')}
-        onLogout={handleLogout}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        eleves={eleves}
-        setEleves={setEleves}
-        colonnesBoker={colonnesBoker}
-        setColonnesBoker={setColonnesBoker}
-        colonnesFormation={colonnesFormation}
-        setColonnesFormation={setColonnesFormation}
-        notesMensuelles={notesMensuelles}
-        setNotesMensuelles={setNotesMensuelles}
-        semaineActuelle={semaineActuelle}
-        setSemaineActuelle={setSemaineActuelle}
-      />
-    </PageAvecBandeau>
+    <Dashboard 
+      onMensuel={() => setCurrentPage('mensuel')} 
+      onTrimestriel={() => setCurrentPage('trimestriel')}
+      onInspectEleve={(page) => setCurrentPage(page)}
+      onLogout={signOut}
+      theme={theme}
+      onToggleTheme={toggleTheme}
+      eleves={eleves}
+      setEleves={setEleves}
+      colonnesBoker={colonnesBoker}
+      setColonnesBoker={setColonnesBoker}
+      colonnesFormation={colonnesFormation}
+      setColonnesFormation={setColonnesFormation}
+      notesMensuelles={notesMensuelles}
+      setNotesMensuelles={setNotesMensuelles}
+      semaineActuelle={semaineActuelle}
+      setSemaineActuelle={setSemaineActuelle}
+      userId={user.id}
+      user={user}
+    />
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

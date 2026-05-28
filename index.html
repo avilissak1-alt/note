@@ -4,9 +4,56 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestion des Notes Scolaires</title>
+    <!-- Content Security Policy pour ignorer les erreurs Google Translate et extensions -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;
+        style-src 'self' 'unsafe-inline' data: blob:;
+        img-src 'self' data: blob:;
+        font-src 'self' data:;
+        connect-src 'self' https://nqhiivrlldolvtmkjlce.supabase.co;
+        media-src 'self';
+        object-src 'none';
+        frame-src 'none';
+        worker-src 'self' blob:;
+        form-action 'self';
+    ">
 </head>
 <body>
     <div id="root"></div>
+    <!-- Script pour ignorer les erreurs CSP liées aux extensions et Google Translate -->
+    <script>
+        // Ignorer silencieusement les erreurs CSP spécifiques
+        window.addEventListener('error', function(event) {
+            // Ignorer les erreurs liées à Google Translate
+            if (event.message && (
+                event.message.includes('translate.google') ||
+                event.message.includes('google-translate') ||
+                event.message.includes('chrome-extension') ||
+                event.message.includes('Content Security Policy') ||
+                event.filename && event.filename.includes('chrome-extension')
+            )) {
+                event.preventDefault();
+                event.stopPropagation();
+                return false;
+            }
+        }, true);
+
+        // Ignorer les avertissements CSP dans la console
+        const originalConsoleError = console.error;
+        console.error = function(...args) {
+            const message = args.join(' ');
+            // Ignorer les erreurs CSP spécifiques
+            if (message.includes('Content Security Policy') && 
+                (message.includes('translate') || 
+                 message.includes('chrome-extension') || 
+                 message.includes('moz-extension'))) {
+                return;
+            }
+            // Afficher les autres erreurs normalement
+            return originalConsoleError.apply(console, args);
+        };
+    </script>
     <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

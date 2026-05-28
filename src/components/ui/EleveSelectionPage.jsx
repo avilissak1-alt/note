@@ -179,7 +179,7 @@ function EleveSelectionPage({ onBack, onEleveSelect, eleves, notesMensuelles, co
         )}
       </main>
 
-      <style jsx>{`
+      <style>{`
         .grade-green { color: #16a34a; }
         .grade-orange { color: #ea580c; }
         .grade-yellow { color: #ca8a04; }

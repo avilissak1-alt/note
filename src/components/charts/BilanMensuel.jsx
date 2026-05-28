@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import NoteInput from './NoteInput';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import Button from '../ui/Button';
+import NoteInput from '../ui/NoteInput';
+import { gradesService } from '../../services/supabaseService.js';
 
-function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColonnesBoker, colonnesFormation, setColonnesFormation, notesMensuelles, setNotesMensuelles, semaineActuelle }) {
+function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColonnesBoker, colonnesFormation, setColonnesFormation, notesMensuelles, setNotesMensuelles, semaineActuelle, userId }) {
   const [showModal, setShowModal] = useState(false);
   const [nomControle, setNomControle] = useState('');
   const [matiereChoisie, setMatiereChoisie] = useState('');
@@ -46,7 +48,7 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
 
   const calculerMoyenneGroupe = (eleveNotes, groupeColonnes) => {
     const valid = groupeColonnes
-      .map(c => calculerMoyenneMatiere(notesMensuelles?.[eleveNotes]?.[c.id]))
+      .map(c => calculerMoyenneMatiere(eleveNotes?.[c.id]))
       .filter(n => n !== null && n !== undefined && !isNaN(n));
     if (valid.length === 0) return null;
     return (valid.reduce((a, b) => a + parseFloat(b), 0) / valid.length).toFixed(2);
@@ -55,7 +57,7 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
   const calculerMoyenneGenerale = (eleveNotes) => {
     const toutes = [...colonnesBoker, ...colonnesFormation];
     const valid = toutes
-      .map(c => calculerMoyenneMatiere(notesMensuelles?.[eleveNotes]?.[c.id]))
+      .map(c => calculerMoyenneMatiere(eleveNotes?.[c.id]))
       .filter(n => n !== null && n !== undefined && !isNaN(n));
     if (valid.length === 0) return null;
     return (valid.reduce((a, b) => a + parseFloat(b), 0) / valid.length).toFixed(2);
@@ -68,22 +70,42 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
     return 'grade-green';
   };
 
-  const updateNote = (eleveId, matiereId, noteNum, value) => {
+  const updateNote = useCallback(async (eleveId, subject, weekIndex, value) => {
     const noteValue = value === '' ? null : parseFloat(value);
+    const weekId = `week${weekIndex + 1}`; // Format: week1, week2, etc.
     
-    setNotesMensuelles(prev => {
-      const copy = structuredClone(prev);
+    // Validation des notes 0-100
+    if (noteValue !== null && (noteValue < 0 || noteValue > 100)) {
+      console.error('Note hors limites (0-100):', noteValue);
+      return;
+    }
+    
+    // Trouver l'élève dans la liste locale
+    const eleve = eleves.find(e => e.id === eleveId);
+    if (!eleve) {
+      console.error('Élève non trouvé:', eleveId);
+      return;
+    }
+    
+    try {
+      // Sauvegarder la note avec la nouvelle structure (MÊME LOGIQUE QUE DASHBOARD)
+      await gradesService.upsert(userId, {
+        student_id: eleveId,
+        subject: subject,
+        week_id: weekId,
+        value: noteValue
+      });
       
-      if (!copy[eleveId]) copy[eleveId] = {};
-      if (!copy[eleveId][matiereId]) {
-        copy[eleveId][matiereId] = [null, null, null, null];
-      }
+      console.log(`Bilan Mensuel: Note ${noteValue} pour ${eleve.name || `${eleve.firstName} ${eleve.lastName}`}, ${subject}, ${weekId}`);
       
-      copy[eleveId][matiereId][noteNum - 1] = noteValue;
+      // Recharger les notes pour synchronisation (MÊME LOGIQUE QUE DASHBOARD)
+      const updatedNotes = await gradesService.getAll(userId);
+      setNotesMensuelles(updatedNotes);
       
-      return copy;
-    });
-  };
+    } catch (error) {
+      console.error('Erreur lors de la sauvegarde de la note (Bilan Mensuel):', error);
+    }
+  }, [userId, eleves, setNotesMensuelles]);
 
   const supprimerEleve = (eleveId) => {
     if (!window.confirm('Voulez-vous vraiment supprimer cet élève ?')) return;
@@ -134,14 +156,14 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
     }}>
       <header style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', padding: '0 1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '64px' }}>
-          <button onClick={onBack} style={{ padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Button onClick={onBack} variant="secondary" size="medium">
             ← Retour
-          </button>
+          </Button>
           <h1 style={{ color: 'var(--text-primary)', fontSize: '1.4rem', fontWeight: 'bold', margin: 0 }}>Bulletin Mensuel</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button onClick={resetNotes} style={{ padding: '8px 16px', borderRadius: '8px', backgroundColor: '#dc2626', color: 'white', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Button onClick={resetNotes} variant="premium" size="medium" style={{ backgroundColor: '#dc2626' }}>
               🔄 Réinitialiser les notes
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -170,8 +192,8 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
               <optgroup label="Formation Professionnelle"><option value="graphisme">Graphisme</option><option value="marketing">Marketing</option><option value="developpement">Développement</option><option value="ia">IA</option><option value="francais">Français</option></optgroup>
             </select>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowModal(false); setNomControle(''); setMatiereChoisie(''); }} style={{ padding: '8px 16px', borderRadius: '6px', backgroundColor: '#6b7280', color: 'white', border: 'none', cursor: 'pointer' }}>Annuler</button>
-              <button onClick={ajouterControle} disabled={!nomControle.trim() || !matiereChoisie} style={{ padding: '8px 16px', borderRadius: '6px', backgroundColor: (!nomControle.trim() || !matiereChoisie) ? '#9ca3af' : '#059669', color: 'white', border: 'none', cursor: 'pointer' }}>Ajouter</button>
+              <Button onClick={() => { setShowModal(false); setNomControle(''); setMatiereChoisie(''); }} variant="secondary" size="small">Annuler</Button>
+              <Button onClick={ajouterControle} disabled={!nomControle.trim() || !matiereChoisie} variant="premium" size="small">Ajouter</Button>
             </div>
           </div>
         </div>
@@ -179,26 +201,26 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
 
       <main style={{ padding: '1.5rem 1rem' }}>
         <div style={{ overflowX: 'auto', width: '100%' }}>
-          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: '1400px' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: '1200px' }}>
             <thead>
               {/* LIGNE 1 — Groupes */}
               <tr>
                 <th rowSpan={3} style={{ ...thBase, textAlign: 'left', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-header)', position: 'sticky', left: 0, zIndex: 4, minWidth: '160px', verticalAlign: 'middle' }}>Nom de l'élève</th>
-                <th colSpan={colonnesBoker.length * 4} style={{ ...thBase, backgroundColor: 'rgba(125, 211, 252, 0.12)', color: '#7dd3fc' }}>בוקר</th>
-                <th rowSpan={3} style={{ ...thBase, backgroundColor: '#5b21b6', color: 'white', minWidth: '110px', verticalAlign: 'middle' }}>Moy. בוקר</th>
-                <th colSpan={colonnesFormation.length * 4} style={{ ...thBase, backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' }}>Formation Professionnelle</th>
-                <th rowSpan={3} style={{ ...thBase, backgroundColor: '#065f46', color: 'white', minWidth: '110px', verticalAlign: 'middle' }}>Moy. Formation</th>
-                <th rowSpan={3} style={{ ...thBase, backgroundColor: '#1f2937', color: 'white', minWidth: '130px', verticalAlign: 'middle' }}>Moyenne Générale</th>
+                <th colSpan={colonnesBoker.length * 4} style={{ ...thBase, backgroundColor: '#e3f2fd', color: '#1976d2' }}>בוקר</th>
+                <th rowSpan={3} style={{ ...thBase, backgroundColor: '#1976d2', color: 'white', minWidth: '110px', verticalAlign: 'middle' }}>Moy. בוקר</th>
+                <th colSpan={colonnesFormation.length * 4} style={{ ...thBase, backgroundColor: '#fff3e0', color: '#e65100' }}>Formation Professionnelle</th>
+                <th rowSpan={3} style={{ ...thBase, backgroundColor: '#e65100', color: 'white', minWidth: '110px', verticalAlign: 'middle' }}>Moy. Formation</th>
+                <th rowSpan={3} style={{ ...thBase, backgroundColor: '#424242', color: 'white', minWidth: '130px', verticalAlign: 'middle' }}>Moyenne Générale</th>
                 <th rowSpan={3} style={{ ...thBase, backgroundColor: 'var(--bg-secondary)', color: 'var(--text-header)', position: 'sticky', right: 0, zIndex: 4, minWidth: '120px', verticalAlign: 'middle' }}>Actions</th>
               </tr>
               
               {/* LIGNE 2 — Matières */}
               <tr>
                 {Array.isArray(colonnesBoker) && colonnesBoker.map(col => (
-                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: 'rgba(125, 211, 252, 0.12)', color: '#7dd3fc', direction: 'rtl' }}>{col.nom}</th>
+                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: '#f0f8ff', color: '#1976d2', direction: 'rtl' }}>{col.nom}</th>
                 ))}
                 {Array.isArray(colonnesFormation) && colonnesFormation.map(col => (
-                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' }}>{col.nom}</th>
+                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: '#fffaf0', color: '#e65100' }}>{col.nom}</th>
                 ))}
               </tr>
               
@@ -207,14 +229,14 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
                 {Array.isArray(colonnesBoker) && colonnesBoker.map(col => (
                   <React.Fragment key={col.id}>
                     {[1, 2, 3, 4].map(noteNum => (
-                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: 'rgba(125, 211, 252, 0.12)', color: '#7dd3fc', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
+                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: '#f0f8ff', color: '#1976d2', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
                     ))}
                   </React.Fragment>
                 ))}
                 {Array.isArray(colonnesFormation) && colonnesFormation.map(col => (
                   <React.Fragment key={col.id}>
                     {[1, 2, 3, 4].map(noteNum => (
-                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
+                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: '#fffaf0', color: '#e65100', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
                     ))}
                   </React.Fragment>
                 ))}
@@ -276,7 +298,7 @@ function BilanMensuel({ onBack, theme, eleves, setEleves, colonnesBoker, setColo
                       <span className={getClasseMoyenne(moyGenerale)}>{moyGenerale ?? '—'}</span>
                     </td>
                     <td style={{ padding: '10px 16px', textAlign: 'center', position: 'sticky', right: 0, zIndex: 1, backgroundColor: rowBg, borderBottom: '1px solid var(--border-color)' }}>
-                      <button onClick={() => supprimerEleve(eleve.id)} style={{ padding: '6px 12px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>🗑 Supprimer</button>
+                      <Button onClick={() => supprimerEleve(eleve.id)} variant="premium" size="small" style={{ backgroundColor: '#ef4444' }}>🗑 Supprimer</Button>
                     </td>
                   </tr>
                 );
