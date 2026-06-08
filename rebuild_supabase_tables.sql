@@ -1,43 +1,34 @@
--- SCRIPT DE RECONSTRUCTION PROPRE DES TABLES SUPABASE
--- Exécuter dans Supabase → SQL Editor
+BEGIN;
 
--- 1. Supprimer complètement les anciennes tables cassées
 DROP TABLE IF EXISTS grades CASCADE;
-DROP TABLE IF EXISTS students CASCADE;
 
--- 2. Recréer proprement la table students
-CREATE TABLE students (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL,
-  name TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-
--- 3. Recréer proprement la table grades
 CREATE TABLE grades (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   subject TEXT NOT NULL,
-  week_id TEXT NOT NULL,
-  value NUMERIC NOT NULL CHECK (value >= 0 AND value <= 100),
-  created_at TIMESTAMP DEFAULT NOW(),
-
-  UNIQUE(user_id, student_id, subject, week_id)
+  grade NUMERIC CHECK (grade >= 0 AND grade <= 100),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT grades_user_student_subject_unique UNIQUE (user_id, student_id, subject)
 );
 
--- 4. Vérifier que les tables existent et sont vides
-SELECT 'students' as table_name, COUNT(*) as row_count FROM students
-UNION ALL
-SELECT 'grades' as table_name, COUNT(*) as row_count FROM grades;
+ALTER TABLE grades ENABLE ROW LEVEL SECURITY;
 
--- 5. Afficher la structure des tables pour vérification
-SELECT 
-  column_name, 
-  data_type, 
-  is_nullable, 
-  column_default
-FROM information_schema.columns 
-WHERE table_name IN ('students', 'grades')
-  AND table_schema = 'public'
-ORDER BY table_name, ordinal_position;
+CREATE POLICY "Users can view their own grades" ON grades
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own grades" ON grades
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own grades" ON grades
+  FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own grades" ON grades
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE INDEX idx_grades_user_id ON grades(user_id);
+CREATE INDEX idx_grades_student_id ON grades(student_id);
+CREATE INDEX idx_grades_subject ON grades(subject);
+
+COMMIT;

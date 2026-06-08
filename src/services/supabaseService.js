@@ -21,20 +21,40 @@ export const studentsService = {
 
   // Créer un nouvel élève avec vrai ID Supabase
   async create(userId, studentData) {
+    console.log('=== STUDENTS SERVICE - CRÉATION ÉLÈVE ===');
+    console.log('1. User ID:', userId);
+    console.log('2. StudentData reçu:', studentData);
+    
     try {
+      const studentName = `${studentData.first_name} ${studentData.last_name}`;
+      console.log('3. Nom complet généré:', studentName);
+      
+      const insertData = {
+        user_id: userId,
+        name: studentName
+      };
+      
+      console.log('4. Données pour insertion Supabase:', insertData);
+      
       const { data, error } = await supabase
         .from('students')
-        .insert({
-          user_id: userId,
-          name: `${studentData.first_name} ${studentData.last_name}`
-        })
+        .insert(insertData)
         .select()
         .single();
 
-      if (error) throw error;
+      console.log('5. Réponse Supabase - Data:', data);
+      console.log('6. Réponse Supabase - Error:', error);
+
+      if (error) {
+        console.error('❌ Erreur Supabase lors de la création:', error);
+        throw error;
+      }
+      
+      console.log('✅ Élève créé avec succès:', data);
       return data;
     } catch (error) {
-      console.error('Erreur lors de la création de l\'élève:', error);
+      console.error('❌ Erreur complète lors de la création de l\'élève:', error);
+      console.error('Détails de l\'erreur:', error.message, error.code, error.details);
       throw error;
     }
   },
@@ -113,15 +133,34 @@ export const gradesService = {
         }
       }
 
-      // Récupérer toutes les notes
+      // Récupérer toutes les notes avec validation stricte
       const { data, error } = await supabase
         .from('grades')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: true });
 
-      if (error) throw error;
-      return data || [];
+      if (error) {
+        console.error('❌ ERREUR FETCH GRADES:', error);
+        throw error;
+      }
+      
+      // VALIDATION CRITIQUE - garantir que data est toujours un array
+      const validatedData = Array.isArray(data) ? data : [];
+      
+      if (!Array.isArray(data)) {
+        console.error('❌ CRITICAL: Supabase a retourné des données non-array:', typeof data, data);
+        console.log('   - Data brute:', data);
+        console.log('   - Conversion forcée en array vide');
+      }
+      
+      console.log('✅ GRADES FETCH VALIDÉ:', {
+        count: validatedData.length,
+        isArray: Array.isArray(validatedData),
+        firstItem: validatedData[0] || null
+      });
+      
+      return validatedData;
     } catch (error) {
       console.error('Erreur lors de la récupération des notes:', error);
       return [];
@@ -149,70 +188,30 @@ export const gradesService = {
       
       console.log('✅ Élève vérifié:', studentData);
 
-      // 2. Tenter l'upsert avec la bonne structure
+      // 2. Tenter l'upsert avec la structure CORRIGÉE et VALIDÉE
+      console.log('2. VALIDATION STRUCTURE DONNÉES...');
+      
+      // Validation et normalisation des données avant envoi
+      const normalizedGradeData = {
+        user_id: userId,
+        student_id: gradeData.student_id,
+        subject: gradeData.subject,
+        grade: gradeData.grade
+      };
+      
+      console.log('Données normalisées:', normalizedGradeData);
+      
       const { data, error } = await supabase
         .from('grades')
-        .upsert({
-          user_id: userId,
-          student_id: gradeData.student_id,
-          subject: gradeData.subject,
-          week_id: gradeData.week_id,
-          value: gradeData.value
-        }, {
-          onConflict: 'user_id,student_id,subject,week_id'
+        .upsert(normalizedGradeData, {
+          onConflict: 'user_id,student_id,subject'
         })
         .select();
 
       if (error) {
         console.error('❌ Erreur upsert:', error);
-        
-        // Si erreur de foreign key, essayer avec différentes structures de colonnes
-        if (error.code === '23503' || error.message?.includes('foreign key')) {
-          console.log('🔄 Tentative avec structure alternative...');
-          
-          // Vérifier si les colonnes existent vraiment
-          const { data: columnData } = await supabase
-            .from('information_schema.columns')
-            .select('column_name')
-            .eq('table_name', 'grades')
-            .eq('table_schema', 'public');
-          
-          if (columnData) {
-            const columns = columnData.map(c => c.column_name);
-            console.log('Colonnes disponibles dans grades:', columns);
-            
-            // Adapter selon les colonnes réelles
-            let adaptedData = {
-              user_id: userId,
-              student_id: gradeData.student_id,
-              value: gradeData.value
-            };
-            
-            if (columns.includes('subject')) {
-              adaptedData.subject = gradeData.subject;
-            }
-            if (columns.includes('week_id')) {
-              adaptedData.week_id = gradeData.week_id;
-            } else if (columns.includes('week')) {
-              adaptedData.week = gradeData.week_id;
-            }
-            
-            console.log('Données adaptées:', adaptedData);
-            
-            const { data: retryData, error: retryError } = await supabase
-              .from('grades')
-              .upsert(adaptedData)
-              .select();
-              
-            if (retryError) {
-              console.error('❌ Échec même avec adaptation:', retryError);
-              throw retryError;
-            }
-            
-            console.log('✅ Sauvegarde réussie avec adaptation:', retryData);
-            return retryData || [];
-          }
-        }
+        console.error('Code erreur:', error.code);
+        console.error('Message erreur:', error.message);
         
         throw error;
       }
@@ -226,15 +225,14 @@ export const gradesService = {
   },
 
   // Supprimer une note
-  async delete(userId, studentId, subject, weekId) {
+  async delete(userId, studentId, subject) {
     try {
       const { error } = await supabase
         .from('grades')
         .delete()
         .eq('user_id', userId)
         .eq('student_id', studentId)
-        .eq('subject', subject)
-        .eq('week_id', weekId);
+        .eq('subject', subject);
 
       if (error) throw error;
     } catch (error) {

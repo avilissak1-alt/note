@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import Button from '../components/ui/Button.jsx';
+import { theme, styles } from '../styles/theme.js';
 
 const AuthPage = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -92,6 +93,10 @@ const AuthPage = () => {
     e.preventDefault();
     setError('');
     
+    // DEBUG TEMPORAIRE - Afficher la configuration Supabase utilisée
+    console.log('=== DEBUG AUTH ===');
+    console.log('Supabase URL utilisée:', import.meta.env.VITE_SUPABASE_URL);
+    
     // Vérifier si l'utilisateur est bloqué
     if (isBlocked) {
       setError(`Trop de tentatives. Veuillez attendre ${blockTimeRemaining} secondes`);
@@ -117,13 +122,113 @@ const AuthPage = () => {
 
     try {
       if (isLogin) {
-        // Connexion
+        // CONNEXION UNIQUEMENT - pas de signUp automatique
+        
+        // DEBUG: Vérifier les inputs avant envoi
+        console.log('=== DEBUG LOGIN ===');
+        console.log('Email brut:', email);
+        console.log('Email type:', typeof email);
+        console.log('Email undefined?', email === undefined);
+        console.log('Password brut:', password);
+        console.log('Password type:', typeof password);
+        console.log('Password undefined?', password === undefined);
+        console.log('Password length:', password?.length);
+        
+        // Validation stricte des inputs
+        if (!email || typeof email !== 'string' || email.trim() === '') {
+          setError('Email invalide ou manquant');
+          setLoading(false);
+          return;
+        }
+        
+        if (!password || typeof password !== 'string' || password.trim() === '') {
+          setError('Mot de passe invalide ou manquant');
+          setLoading(false);
+          return;
+        }
+        
+        const cleanEmail = email.toLowerCase().trim();
+        const cleanPassword = password.trim();
+        
+        console.log('Inputs nettoyés:');
+        console.log('Email:', cleanEmail);
+        console.log('Password length:', cleanPassword.length);
+        console.log('Supabase URL:', import.meta.env.VITE_SUPABASE_URL);
+        
+        // DEBUG COMPLET - Afficher exactement ce qui est envoyé
+        console.log('=== DEBUG REQUÊTE POST ===');
+        console.log('URL complète:', `${import.meta.env.VITE_SUPABASE_URL}/auth/v1/token?grant_type=password`);
+        console.log('Email final:', cleanEmail);
+        console.log('Password final:', cleanPassword);
+        console.log('Password type:', typeof cleanPassword);
+        console.log('Password length:', cleanPassword.length);
+        console.log('Email vide?', cleanEmail === '');
+        console.log('Password vide?', cleanPassword === '');
+        
+        // Vérification finale avant envoi
+        if (!cleanEmail || cleanEmail === '') {
+          console.error('❌ Email vide avant envoi');
+          setError('Email invalide');
+          setLoading(false);
+          return;
+        }
+        
+        if (!cleanPassword || cleanPassword === '') {
+          console.error('❌ Password vide avant envoi');
+          setError('Mot de passe invalide');
+          setLoading(false);
+          return;
+        }
+        
+        // TENTER LA CONNEXION
         const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.toLowerCase().trim(),
-          password,
+          email: cleanEmail,
+          password: cleanPassword,
         });
         
+        console.log('Réponse Supabase signInWithPassword:');
+        console.log('Data:', data);
+        console.log('Error:', error);
+        
         if (error) {
+          console.log('=== ERREUR 400 BAD REQUEST DÉTAILLÉE ===');
+          console.log('Error object complet:', error);
+          console.log('Error message:', error.message);
+          console.log('Error status:', error.status);
+          console.log('Error code:', error.status_code || error.code);
+          console.log('Error name:', error.name);
+          console.log('Error stack:', error.stack);
+          
+          // Analyse spécifique du 400 Bad Request
+          if (error.status === 400) {
+            console.log('=== ANALYSE 400 BAD REQUEST ===');
+            console.log('Cause probable: invalid email ou password format');
+            console.log('Email envoyé:', cleanEmail);
+            console.log('Password envoyé:', cleanPassword ? '***' : 'NULL/VIDE');
+            console.log('URL Supabase:', import.meta.env.VITE_SUPABASE_URL);
+            
+            // Essayer de voir si c'est un problème de format
+            if (cleanEmail.includes('@') && cleanEmail.includes('.')) {
+              console.log('✅ Email format OK');
+            } else {
+              console.log('❌ Email format INVALIDE');
+            }
+            
+            if (cleanPassword.length >= 6) {
+              console.log('✅ Password length OK');
+            } else {
+              console.log('❌ Password trop court');
+            }
+          }
+          
+          // CAS SPÉCIAL: user already exists - rediriger vers login
+          if (error.message?.includes('user already exists') || error.message?.includes('User already registered')) {
+            setError('Ce compte existe déjà. Utilisez le mode connexion.');
+            setIsLogin(true);
+            setLoading(false);
+            return;
+          }
+          
           // Gérer les tentatives de connexion
           const newAttempts = loginAttempts + 1;
           setLoginAttempts(newAttempts);
@@ -152,7 +257,9 @@ const AuthPage = () => {
             setError('Trop de tentatives incorrectes. Veuillez attendre 30 secondes.');
           } else {
             // Message d'erreur clair pour les 2 premières tentatives
-            setError('Mot de passe incorrect');
+            const errorMessage = getErrorMessage(error);
+            console.log('Message d\'erreur formaté:', errorMessage);
+            setError(errorMessage);
           }
           
           return;
@@ -164,9 +271,11 @@ const AuthPage = () => {
         setBlockTimeRemaining(0);
         
         // Connexion réussie - redirection automatique via onAuthStateChange
-        console.log('Connexion réussie');
+        console.log('Connexion réussie pour:', email.toLowerCase().trim());
       } else {
-        // Inscription sans confirmation email (mode développement)
+        // INSCRIPTION - créer un nouveau compte
+        console.log('Tentative d\'inscription avec:', email.toLowerCase().trim());
+        
         const { data, error } = await supabase.auth.signUp({
           email: email.toLowerCase().trim(),
           password,
@@ -183,26 +292,14 @@ const AuthPage = () => {
           return;
         }
         
-        // En mode développement, essayer de connecter directement après inscription
-        if (data.user && !data.session) {
-          // Si pas de session, essayer de se connecter manuellement
-          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-            email: email.toLowerCase().trim(),
-            password,
-          });
-          
-          if (signInError) {
-            setError('Compte créé ! Vous pouvez maintenant vous connecter.');
-            setIsLogin(true);
-            setEmail('');
-            setPassword('');
-            setConfirmPassword('');
-          } else {
-            console.log('Inscription et connexion réussies');
-          }
-        } else {
-          console.log('Inscription réussie');
-        }
+        // Message de succès et basculer vers login
+        setError('Compte créé avec succès ! Vous pouvez maintenant vous connecter.');
+        setIsLogin(true);
+        setEmail('');
+        setPassword('');
+        setConfirmPassword('');
+        
+        console.log('Inscription réussie pour:', email.toLowerCase().trim());
       }
     } catch (error) {
       setError(getErrorMessage(error));
@@ -224,68 +321,45 @@ const AuthPage = () => {
   }, []);
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      backgroundColor: '#0a0a0a',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: 'Palatino, Palatino Linotype, serif',
-      padding: '20px'
-    }}>
+    <div style={styles.page}>
       <div style={{
-        backgroundColor: 'rgba(251, 191, 36, 0.05)',
-        border: '1px solid rgba(251, 191, 36, 0.2)',
-        borderRadius: '16px',
-        padding: '3rem',
-        width: '100%',
+        ...theme.components.card,
         maxWidth: '450px',
-        boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)'
+        width: '100%',
+        margin: '0 auto'
       }}>
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+        <div style={{ textAlign: 'center', marginBottom: theme.spacing.xxl }}>
           <h1 style={{
-            color: '#fbbf24',
-            fontSize: '2.5rem',
-            fontWeight: 'bold',
-            marginBottom: '0.5rem',
-            fontFamily: 'Palatino, Palatino Linotype, serif'
+            color: theme.colors.textPrimary,
+            fontSize: theme.typography.fontSize.xxl,
+            fontWeight: theme.typography.fontWeight.bold,
+            marginBottom: theme.spacing.md,
+            fontFamily: theme.typography.fontFamily
           }}>
             Gestion des Notes
           </h1>
           <p style={{
-            color: 'rgba(251, 191, 36, 0.7)',
-            fontSize: '1.1rem',
-            fontFamily: 'Palatino, Palatino Linotype, serif'
+            color: theme.colors.textSecondary,
+            fontSize: theme.typography.fontSize.lg,
+            fontFamily: theme.typography.fontFamily
           }}>
             {isLogin ? 'Connectez-vous à votre espace' : 'Créez votre compte'}
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <div>
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <div style={styles.formGroup}>
             <input
               type="email"
               placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '1rem',
-                backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(251, 191, 36, 0.3)',
-                borderRadius: '8px',
-                color: '#fbbf24',
-                fontSize: '1rem',
-                fontFamily: 'Palatino, Palatino Linotype, serif',
-                transition: 'all 0.3s ease'
-              }}
+              style={theme.components.input}
               onFocus={(e) => {
-                e.target.style.borderColor = '#fbbf24';
-                e.target.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+                e.target.style.borderColor = theme.colors.primary;
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = 'rgba(251, 191, 36, 0.3)';
-                e.target.style.backgroundColor = 'rgba(0, 0, 0, 0.3)';
+                e.target.style.borderColor = theme.colors.border;
               }}
             />
           </div>
@@ -293,11 +367,8 @@ const AuthPage = () => {
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            backgroundColor: 'rgba(0, 0, 0, 0.3)',
-            border: '1px solid rgba(251, 191, 36, 0.3)',
-            borderRadius: '8px',
-            transition: 'all 0.3s ease',
-            overflow: 'hidden'
+            ...theme.components.input,
+            padding: '0'
           }}>
             <input
               type={showPassword ? 'text' : 'password'}

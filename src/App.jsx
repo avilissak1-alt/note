@@ -9,6 +9,8 @@ import EleveAnalysePage from './pages/EleveAnalysePage.jsx';
 import ProfesseurPage from './pages/ProfesseurPage.jsx';
 import BandeauSemaine from './components/ui/BandeauSemaine.jsx';
 import { studentsService, gradesService } from './services/supabaseService.js';
+import { dataSyncService } from './services/dataSyncService.js';
+import { atomicSyncService } from './services/atomicSyncService.js';
 import './index.css';
 
 function AppContent() {
@@ -33,7 +35,7 @@ function AppContent() {
     { id: 'form_5', nom: 'Français', matiere: 'francais' },
   ]);
   const [semaineActuelle, setSemaineActuelle] = useState(1);
-  const [notesMensuelles, setNotesMensuelles] = useState({});
+  const [notesMensuelles, setNotesMensuelles] = useState([]);
   const [selectedEleve, setSelectedEleve] = useState(null);
   const [dataLoading, setDataLoading] = useState(false);
 
@@ -75,53 +77,60 @@ function AppContent() {
     
     setDataLoading(true);
     try {
-      // Charger les élèves depuis Supabase
-      const supabaseStudents = await studentsService.getAll(user.id);
-      const formattedStudents = supabaseStudents.map(student => {
-        // Gérer l'ancienne et la nouvelle structure
-        if (student.first_name && student.last_name) {
-          return {
-            id: student.id,
-            firstName: student.first_name,
-            lastName: student.last_name,
-          };
-        } else if (student.name) {
-          // Nouvelle structure : diviser le nom en firstName/lastName
-          const nameParts = student.name.split(' ');
-          return {
-            id: student.id,
-            firstName: nameParts[0] || '',
-            lastName: nameParts.slice(1).join(' ') || '',
-          };
-        } else {
-          // Fallback
-          return {
-            id: student.id,
-            firstName: 'Élève',
-            lastName: 'Inconnu',
-          };
-        }
-      });
-      setEleves(formattedStudents);
-
-      // Charger les notes depuis Supabase (NOUVELLE STRUCTURE)
-      const gradesData = await gradesService.getAll(user.id);
-      setNotesMensuelles(gradesData);
+      console.log('=== CHARGEMENT DONNÉES UTILISATEUR - SYNCHRONISATION ATOMIQUE ===');
       
-      // Synchroniser uniquement les élèves locaux (pas les notes)
+      // SYNCHRONISATION ATOMIQUE - charge students ET grades de manière cohérente
+      console.log('1. Synchronisation atomique des données...');
+      console.log('   - Timestamp début sync:', new Date().toISOString());
+      console.log('   - User ID:', user.id);
+      
+      const atomicResult = await atomicSyncService.syncAtomicData(user.id);
+      
+      console.log('   - Timestamp fin sync:', new Date().toISOString());
+      console.log('   - Students retournés:', atomicResult.students?.length || 0);
+      console.log('   - Grades retournés:', atomicResult.grades?.length || 0);
+      
+      // Mise à jour des states React avec les données atomiquement synchronisées
+      console.log('2. Mise à jour des states React avec données cohérentes...');
+      console.log('   - AVANT setEleves - eleves actuels:', eleves?.length || 0);
+      
+      setEleves(atomicResult.students);
+      
+      console.log('   - APRÈS setEleves - nouvelle longueur:', atomicResult.students?.length || 0);
+      console.log('   - AVANT setNotesMensuelles - notes actuelles:', notesMensuelles?.length || 0);
+      
+      setNotesMensuelles(atomicResult.grades);
+      
+      console.log('   - APRÈS setNotesMensuelles - nouvelle longueur:', atomicResult.grades?.length || 0);
+      console.log('   - Timestamp fin mise à jour states:', new Date().toISOString());
+      
+      console.log('=== RÉSULTAT SYNCHRONISATION ATOMIQUE ===');
+      console.log('Students synchronisés:', atomicResult.metadata.studentsCount);
+      console.log('Grades synchronisés:', atomicResult.metadata.gradesCount);
+      console.log('Grades orphelins supprimés:', atomicResult.metadata.orphanedGradesRemoved);
+      console.log('Cohérence finale:', atomicResult.metadata.isConsistent ? '✅ PARFAITE' : '⚠️ PARTIELLE');
+      
+      if (!atomicResult.metadata.isConsistent) {
+        console.warn('⚠️ Incohérences résiduelles détectées');
+      } else {
+        console.log('✅ SYNCHRONISATION ATOMIQUE RÉUSSIE - Application prête');
+      }
+      
+      // Synchroniser les élèves locaux avec les données propres
       const localEleves = localStorage.getItem(`eleves_${user.id}`);
       
       if (localEleves) {
         const parsedLocalEleves = JSON.parse(localEleves);
-        // Fusionner les élèves locaux avec Supabase
-        const mergedEleves = [...formattedStudents];
+        // Fusionner les élèves locaux avec les données atomiquement synchronisées
+        const mergedEleves = [...atomicResult.students];
         parsedLocalEleves.forEach(localEleve => {
-          if (!formattedStudents.find(s => s.id === localEleve.id)) {
+          if (!atomicResult.students.find(s => s.id === localEleve.id)) {
             // L'élève local n'existe pas dans Supabase, l'ajouter
             mergedEleves.push(localEleve);
           }
         });
         setEleves(mergedEleves);
+        console.log('4. Élèves locaux fusionnés:', mergedEleves.length);
       }
     } finally {
       setDataLoading(false);

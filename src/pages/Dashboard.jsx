@@ -4,16 +4,46 @@ import NoteInput from '../components/ui/NoteInput.jsx';
 import BandeauSemaine from '../components/ui/BandeauSemaine.jsx';
 import Button from '../components/ui/Button.jsx';
 import { studentsService, gradesService } from '../services/supabaseService.js';
+import { useDataSync } from '../hooks/useDataSync.js';
 
 const initialEleves = [];
 
 function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, onToggleTheme, eleves, setEleves, colonnesBoker, setColonnesBoker, colonnesFormation, setColonnesFormation, notesMensuelles, setNotesMensuelles, semaineActuelle, setSemaineActuelle, selectedEleve, setSelectedEleve, userId, user }) {
+  // LOGGING DES PROPS AU CHARGEMENT DU COMPOSANT
+  console.log('=== DASHBOARD COMPOSANT CHARGÉ ===');
+  console.log('1. PROPS REÇUES:');
+  console.log('   - user:', user ? '✅ PRÉSENT' : '❌ NULL');
+  console.log('   - userId:', userId || '❌ NULL');
+  console.log('   - eleves.length:', eleves?.length || '❌ NULL/UNDEFINED');
+  console.log('   - notesMensuelles.length:', notesMensuelles?.length || '❌ NULL/UNDEFINED');
+  
+  console.log('2. ELEVES IDS REÇUS:');
+  if (eleves && Array.isArray(eleves)) {
+    console.log('   - Nombre d\'élèves:', eleves.length);
+    console.log('   - 5 premiers IDs:', eleves.slice(0, 5).map(e => e.id));
+    
+    // Vérifier si l'ID problématique est dans les props
+    const problematicIdInProps = eleves.some(e => e.id === '588b1c6f-d386-4250-a51e-7d0c981d6c3d');
+    console.log('   - ID 588b1c6f-d386-4250-a51e-7d0c981d6c3d dans props:', problematicIdInProps ? '✅ OUI' : '❌ NON');
+    
+    if (problematicIdInProps) {
+      const problematicStudent = eleves.find(e => e.id === '588b1c6f-d386-4250-a51e-7d0c981d6c3d');
+      console.log('   - Élève problématique dans props:', problematicStudent);
+    }
+  } else {
+    console.log('   - eleves invalide:', typeof eleves);
+  }
+  
+  console.log('3. TIMESTAMP CHARGEMENT DASHBOARD:', new Date().toISOString());
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEleve, setNewEleve] = useState({ firstName: '', lastName: '' });
   const [showModal, setShowModal] = useState(false);
   const [nomControle, setNomControle] = useState('');
   const [matiereChoisie, setMatiereChoisie] = useState('');
   const [expandedEleves, setExpandedEleves] = useState(new Set());
+  
+  // Hook de synchronisation des données
+  const { syncAfterStudentAdd, syncAfterStudentDelete, syncAfterGradeUpdate, syncStatus } = useDataSync(userId);
   
   // Refs pour préserver la position de scroll et éviter les re-renders
   const semaineRef = useRef(semaineActuelle);
@@ -25,6 +55,64 @@ function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, 
   useEffect(() => {
     semaineRef.current = semaineActuelle;
   }, [semaineActuelle]);
+  
+  // DEBUG GLOBAL - État des données au chargement
+  useEffect(() => {
+    console.log('=== DASHBOARD - ÉTAT DES DONNÉES ===');
+    console.log('1. User ID:', userId);
+    console.log('2. Élèves chargés:', eleves?.length || 0);
+    console.log('3. Students IDs:', eleves?.map(s => s.id) || []);
+    
+    // Vérifier si l'ID problématique est présent au chargement
+    if (eleves && Array.isArray(eleves)) {
+      const hasProblematicId = eleves.some(e => e.id === '588b1c6f-d386-4250-a51e-7d0c981d6c3d');
+      console.log('4. ID problématique au chargement:', hasProblematicId ? '✅ PRÉSENT' : '❌ ABSENT');
+      
+      if (!hasProblematicId) {
+        console.log('⚠️ L\'ID PROBLÉMATIQUE N\'EST PAS DANS LES PROPS AU CHARGEMENT!');
+        console.log('   - Ceci explique l\'erreur "Élève non trouvé"');
+        console.log('   - L\'ID existe dans la base mais pas dans les props React');
+      }
+    }
+    
+    // Stocker l'état initial pour comparaison
+    if (typeof window !== 'undefined') {
+      window.initialDashboardState = {
+        timestamp: new Date().toISOString(),
+        userId: userId,
+        elevesLength: eleves?.length || 0,
+        elevesIds: eleves?.map(e => e.id) || [],
+        hasProblematicId: eleves?.some(e => e.id === '588b1c6f-d386-4250-a51e-7d0c981d6c3d') || false
+      };
+    }
+    console.log('4. Notes chargées:', notesMensuelles?.length || 0);
+    console.log('5. Grades student_ids:', (Array.isArray(notesMensuelles) ? notesMensuelles : []).map(g => g.student_id) || []);
+    
+    // Vérifier l'ID problématique spécifique
+    const problematicId = '588b1c6f-d386-4250-a51e-7d0c981d6c3d';
+    const studentExists = eleves?.some(e => e.id === problematicId);
+    const gradeExists = notesMensuelles?.some(g => g.student_id === problematicId);
+    
+    console.log('6. ID problématique (588b1c6f-d386-4250-a51e-7d0c981d6c3d):');
+    console.log('   - Existe dans students:', studentExists);
+    console.log('   - Existe dans grades:', gradeExists);
+    
+    if (gradeExists && !studentExists) {
+      console.error('❌ GRADE ORPHELIN DÉTECTÉ:', problematicId);
+      console.log('   Ce grade va causer des erreurs de calcul');
+    }
+    
+    // Vérifier tous les orphelins
+    const studentIds = new Set(eleves?.map(s => s.id) || []);
+    const gradeStudentIds = new Set((Array.isArray(notesMensuelles) ? notesMensuelles : []).map(g => g.student_id).filter(Boolean) || []);
+    const allOrphanedGrades = [...gradeStudentIds].filter(id => !studentIds.has(id));
+    
+    if (allOrphanedGrades.length > 0) {
+      console.log('7. TOUS LES GRADES ORPHELINS:', allOrphanedGrades);
+      console.log('   Ces grades vont causer des erreurs systématiques');
+    }
+    
+  }, [eleves, notesMensuelles, userId]);
 
   // Préserver la position de scroll et éviter les resets
   useEffect(() => {
@@ -69,7 +157,7 @@ function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, 
         clearTimeout(timeoutId);
       };
     }
-  }, [eleves.length, notesMensuelles.length]);
+  }, [userId]); // Dépendance UNIQUEMENT de userId pour éviter les boucles infinies
 
   // Optimisation : prévenir les re-renders inutiles du tableau
   const memoizedEleves = useMemo(() => eleves, [eleves.length, eleves.map(e => e.id).join(',')]);
@@ -93,18 +181,292 @@ function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, 
   // Les élèves sont maintenant chargés depuis App.jsx via loadUserData()
 
   const calculerMoyenneGroupe = (eleveId, groupeColonnes) => {
+  // DEBUG RAPIDE - Vérifier le problème ID 588b1c6f-d386-4250-a51e-7d0c981d6c3d
+  console.log('=== DEBUG MOYENNE GROUPE ===');
+  console.log('1. Élève ID demandé:', eleveId);
+  console.log('2. Students disponibles:', eleves?.map(s => ({ id: s.id, name: `${s.firstName} ${s.lastName}` })) || []);
+  console.log('3. Students IDs:', eleves?.map(s => s.id) || []);
+  
+  // CAPTURE ÉTAT PRÉCIS AVANT ERREUR
+  console.log('=== CAPTURE ÉTAT ÉLÈVES AVANT VÉRIFICATION ===');
+  console.log('1. Variable eleves type:', typeof eleves);
+  console.log('2. Variable eleves est array:', Array.isArray(eleves));
+  console.log('3. Longueur eleves:', eleves?.length || 0);
+  console.log('4. Contenu complet eleves:', eleves?.map(e => ({ 
+    id: e.id, 
+    name: `${e.firstName} ${e.lastName}`,
+    idLength: e.id?.length,
+    idType: typeof e.id,
+    isProblematic: e.id === eleveId
+  })) || 'VARIABLE UNDEFINED OU NULL');
+  
+  // Vérification spécifique ID problématique
+  const problematicStudent = eleves?.find(e => e.id === eleveId);
+  console.log('5. Recherche ID problématique:', eleveId);
+  console.log('6. Élève problématique trouvé:', problematicStudent ? '✅ OUI' : '❌ NON');
+  if (problematicStudent) {
+    console.log('7. Détails élève problématique:', problematicStudent);
+  } else {
+    console.log('7. IDs disponibles dans eleves:', eleves?.map(e => e.id) || []);
+  }
+  
+  // Vérifier si l'élève existe
+  const eleveExists = eleves?.some(e => e.id === eleveId);
+  console.log('8. Élève existe dans students:', eleveExists);
+  
+  if (!eleveExists) {
+    console.error('❌ ÉLÈVE NON TROUVÉ DANS STUDENTS:', eleveId);
+    
+    // CAPTURE PRÉCISE AU MOMENT EXACT DE L'ERREUR
+    console.log('🔍 ENQUÊTE PRÉCISE - VALEUR RÉELLE AU MOMENT ERREUR');
+    console.log('1. ELEVEID RECHERCHÉ:', eleveId);
+    console.log('2. ELEVES.LENGTH:', eleves?.length || 'UNDEFINED');
+    console.log('3. ELEVES EST ARRAY:', Array.isArray(eleves));
+    console.log('4. ELEVES EST NULL/UNDEFINED:', eleves === null || eleves === undefined);
+    
+    // Afficher les 10 premiers IDs si disponibles
+    if (eleves && Array.isArray(eleves) && eleves.length > 0) {
+      console.log('5. 10 PREMIERS IDS ELEVES:');
+      eleves.slice(0, 10).forEach((e, index) => {
+        console.log(`   [${index}] ID: ${e.id}, Name: ${e.firstName} ${e.lastName}`);
+      });
+      
+      // Vérifier si l'ID problématique est dans les 10 premiers
+      const inFirstTen = eleves.slice(0, 10).some(e => e.id === eleveId);
+      console.log('6. ID PROBLÉMATIQUE DANS 10 PREMIERS:', inFirstTen);
+    } else {
+      console.log('5. ELEVES VIDE OU INVALIDE - PAS D\'IDS À AFFICHER');
+    }
+    
+    // Test direct du some()
+    const directSomeTest = eleves?.some(e => e.id === eleveId);
+    console.log('7. TEST DIRECT eleves.some(e => e.id === eleveId):', directSomeTest);
+    
+    // Recherche manuelle détaillée
+    if (eleves && Array.isArray(eleves)) {
+      console.log('8. RECHERCHE MANUELLE DÉTAILLÉE:');
+      let foundIndex = -1;
+      let foundStudent = null;
+      
+      eleves.forEach((student, index) => {
+        if (student.id === eleveId) {
+          foundIndex = index;
+          foundStudent = student;
+        }
+      });
+      
+      console.log('   - Index trouvé:', foundIndex);
+      console.log('   - Élève trouvé:', foundStudent ? '✅ OUI' : '❌ NON');
+      
+      if (foundStudent) {
+        console.log('9. CONTENU COMPLET OBJET ÉLÈVE TROUVÉ:');
+        console.log('   - ID:', foundStudent.id);
+        console.log('   - FirstName:', foundStudent.firstName);
+        console.log('   - LastName:', foundStudent.lastName);
+        console.log('   - Type ID:', typeof foundStudent.id);
+        console.log('   - Longueur ID:', foundStudent.id?.length);
+        console.log('   - ID === eleveId:', foundStudent.id === eleveId);
+        console.log('   - ID == eleveId:', foundStudent.id == eleveId);
+        console.log('   - ID.localeCompare(eleveId):', foundStudent.id?.localeCompare(eleveId));
+      }
+    }
+    
+    // Vérifier si eleves est vide
+    const isEmpty = !eleves || (Array.isArray(eleves) && eleves.length === 0);
+    console.log('10. ELEVES EST VIDE:', isEmpty);
+    
+    // Vérifier le timestamp actuel
+    console.log('11. TIMESTAMP ERREUR:', new Date().toISOString());
+    
+    // Vérifier les props Dashboard si possible
+    console.log('12. VERIFICATION PROPS DASHBOARD:');
+    console.log('   - Props disponibles:', Object.keys(arguments[0] || {}));
+    
+    // Vérifier si plusieurs états eleves existent
+    console.log('13. DÉTECTION MULTIPLES ÉTATS:');
+    if (typeof window !== 'undefined') {
+      const globalEleves = window.eleves;
+      console.log('   - window.eleves:', globalEleves?.length || 'UNDEFINED');
+    }
+    
+    // État complet pour debugging
+    console.log('14. ÉTAT COMPLET FINAL:');
+    console.log('   - eleveId:', eleveId);
+    console.log('   - typeof eleveId:', typeof eleveId);
+    console.log('   - eleveId.length:', eleveId?.length);
+    console.log('   - eleves:', eleves);
+    console.log('   - typeof eleves:', typeof eleves);
+    console.log('   - Array.isArray(eleves):', Array.isArray(eleves));
+    console.log('   - eleves?.length:', eleves?.length);
+    console.log('   - eleveExists:', eleveExists);
+    console.log('   - problematicStudent:', problematicStudent);
+    
+    console.log('Cet élève va causer des erreurs de calcul de moyenne');
+    return null;
+  }
+  
+  // Vérifier les grades pour cet élève (PROTECTION ARRAY)
+  const eleveGrades = (Array.isArray(notesMensuelles) ? notesMensuelles : []).filter(n => n.student_id === eleveId) || [];
+  console.log('5. Grades pour cet élève:', eleveGrades.map(g => ({ student_id: g.student_id, subject: g.subject, grade: g.grade })));
+  console.log('6. Grades student_ids:', (Array.isArray(notesMensuelles) ? notesMensuelles : []).map(g => g.student_id) || []);
+  
+  // Vérifier les orphelins (PROTECTION ARRAY)
+  const studentIds = new Set(eleves?.map(s => s.id) || []);
+  const gradeStudentIds = new Set((Array.isArray(notesMensuelles) ? notesMensuelles : []).map(g => g.student_id).filter(Boolean) || []);
+  const orphanedGrades = [...gradeStudentIds].filter(id => !studentIds.has(id));
+  
+  if (orphanedGrades.length > 0) {
+    console.log('7. Grades orphelins détectés:', orphanedGrades);
+    console.log('   Ces grades vont causer des erreurs de calcul');
+  }
+  
   const valid = groupeColonnes
-    .flatMap(c => notesMensuelles?.[eleveId]?.[c.id] || [])
-    .filter(n => n !== null && n !== '' && n !== undefined && !isNaN(n) && Number(n) !== 0);
+    .flatMap(c => (Array.isArray(notesMensuelles) ? notesMensuelles : [])
+      .filter(n => n.student_id === eleveId && n.subject === c.id)
+      .map(n => n.grade)
+    )
+    .filter(n => n !== null && n !== undefined && !isNaN(n) && Number(n) !== 0);
+    
+  console.log('8. Notes valides pour moyenne:', valid);
+  
   if (valid.length === 0) return null;
   return (valid.reduce((a, b) => a + parseFloat(b), 0) / valid.length).toFixed(2);
 };
 
 const calculerMoyenneGenerale = (eleveId) => {
+  // DEBUG RAPIDE - Vérifier le problème ID 588b1c6f-d386-4250-a51e-7d0c981d6c3d
+  console.log('=== DEBUG MOYENNE GÉNÉRALE ===');
+  console.log('1. Élève ID demandé:', eleveId);
+  console.log('2. Students disponibles:', eleves?.map(s => ({ id: s.id, name: `${s.firstName} ${s.lastName}` })) || []);
+  
+  // CAPTURE ÉTAT PRÉCIS AVANT ERREUR - MOYENNE GÉNÉRALE
+  console.log('=== CAPTURE ÉTAT ÉLÈVES AVANT VÉRIFICATION (MOYENNE GÉNÉRALE) ===');
+  console.log('1. Variable eleves type:', typeof eleves);
+  console.log('2. Variable eleves est array:', Array.isArray(eleves));
+  console.log('3. Longueur eleves:', eleves?.length || 0);
+  console.log('4. Contenu complet eleves:', eleves?.map(e => ({ 
+    id: e.id, 
+    name: `${e.firstName} ${e.lastName}`,
+    idLength: e.id?.length,
+    idType: typeof e.id,
+    isProblematic: e.id === eleveId
+  })) || 'VARIABLE UNDEFINED OU NULL');
+  
+  // Vérification spécifique ID problématique
+  const problematicStudent = eleves?.find(e => e.id === eleveId);
+  console.log('5. Recherche ID problématique:', eleveId);
+  console.log('6. Élève problématique trouvé:', problematicStudent ? '✅ OUI' : '❌ NON');
+  if (problematicStudent) {
+    console.log('7. Détails élève problématique:', problematicStudent);
+  } else {
+    console.log('7. IDs disponibles dans eleves:', eleves?.map(e => e.id) || []);
+  }
+  
+  // Vérifier si l'élève existe
+  const eleveExists = eleves?.some(e => e.id === eleveId);
+  console.log('8. Élève existe dans students:', eleveExists);
+  
+  if (!eleveExists) {
+    console.error('❌ ÉLÈVE NON TROUVÉ DANS STUDENTS:', eleveId);
+    
+    // CAPTURE PRÉCISE AU MOMENT EXACT DE L'ERREUR - MOYENNE GÉNÉRALE
+    console.log('🔍 ENQUÊTE PRÉCISE (MOYENNE GÉNÉRALE) - VALEUR RÉELLE AU MOMENT ERREUR');
+    console.log('1. ELEVEID RECHERCHÉ:', eleveId);
+    console.log('2. ELEVES.LENGTH:', eleves?.length || 'UNDEFINED');
+    console.log('3. ELEVES EST ARRAY:', Array.isArray(eleves));
+    console.log('4. ELEVES EST NULL/UNDEFINED:', eleves === null || eleves === undefined);
+    
+    // Afficher les 10 premiers IDs si disponibles
+    if (eleves && Array.isArray(eleves) && eleves.length > 0) {
+      console.log('5. 10 PREMIERS IDS ELEVES (MOYENNE GÉNÉRALE):');
+      eleves.slice(0, 10).forEach((e, index) => {
+        console.log(`   [${index}] ID: ${e.id}, Name: ${e.firstName} ${e.lastName}`);
+      });
+      
+      // Vérifier si l'ID problématique est dans les 10 premiers
+      const inFirstTen = eleves.slice(0, 10).some(e => e.id === eleveId);
+      console.log('6. ID PROBLÉMATIQUE DANS 10 PREMIERS:', inFirstTen);
+    } else {
+      console.log('5. ELEVES VIDE OU INVALIDE - PAS D\'IDS À AFFICHER');
+    }
+    
+    // Test direct du some()
+    const directSomeTest = eleves?.some(e => e.id === eleveId);
+    console.log('7. TEST DIRECT eleves.some(e => e.id === eleveId):', directSomeTest);
+    
+    // Recherche manuelle détaillée
+    if (eleves && Array.isArray(eleves)) {
+      console.log('8. RECHERCHE MANUELLE DÉTAILLÉE (MOYENNE GÉNÉRALE):');
+      let foundIndex = -1;
+      let foundStudent = null;
+      
+      eleves.forEach((student, index) => {
+        if (student.id === eleveId) {
+          foundIndex = index;
+          foundStudent = student;
+        }
+      });
+      
+      console.log('   - Index trouvé:', foundIndex);
+      console.log('   - Élève trouvé:', foundStudent ? '✅ OUI' : '❌ NON');
+      
+      if (foundStudent) {
+        console.log('9. CONTENU COMPLET OBJET ÉLÈVE TROUVÉ (MOYENNE GÉNÉRALE):');
+        console.log('   - ID:', foundStudent.id);
+        console.log('   - FirstName:', foundStudent.firstName);
+        console.log('   - LastName:', foundStudent.lastName);
+        console.log('   - Type ID:', typeof foundStudent.id);
+        console.log('   - Longueur ID:', foundStudent.id?.length);
+        console.log('   - ID === eleveId:', foundStudent.id === eleveId);
+        console.log('   - ID == eleveId:', foundStudent.id == eleveId);
+        console.log('   - ID.localeCompare(eleveId):', foundStudent.id?.localeCompare(eleveId));
+      }
+    }
+    
+    // Vérifier si eleves est vide
+    const isEmpty = !eleves || (Array.isArray(eleves) && eleves.length === 0);
+    console.log('10. ELEVES EST VIDE:', isEmpty);
+    
+    // Vérifier le timestamp actuel
+    console.log('11. TIMESTAMP ERREUR (MOYENNE GÉNÉRALE):', new Date().toISOString());
+    
+    // Vérifier les props Dashboard si possible
+    console.log('12. VERIFICATION PROPS DASHBOARD (MOYENNE GÉNÉRALE):');
+    console.log('   - Props disponibles:', Object.keys(arguments[0] || {}));
+    
+    // Vérifier si plusieurs états eleves existent
+    console.log('13. DÉTECTION MULTIPLES ÉTATS (MOYENNE GÉNÉRALE):');
+    if (typeof window !== 'undefined') {
+      const globalEleves = window.eleves;
+      console.log('   - window.eleves:', globalEleves?.length || 'UNDEFINED');
+    }
+    
+    // État complet pour debugging
+    console.log('14. ÉTAT COMPLET FINAL (MOYENNE GÉNÉRALE):');
+    console.log('   - eleveId:', eleveId);
+    console.log('   - typeof eleveId:', typeof eleveId);
+    console.log('   - eleveId.length:', eleveId?.length);
+    console.log('   - eleves:', eleves);
+    console.log('   - typeof eleves:', typeof eleves);
+    console.log('   - Array.isArray(eleves):', Array.isArray(eleves));
+    console.log('   - eleves?.length:', eleves?.length);
+    console.log('   - eleveExists:', eleveExists);
+    console.log('   - problematicStudent:', problematicStudent);
+    
+    console.log('Cet élève va causer des erreurs de calcul de moyenne générale');
+    return null;
+  }
+  
   const toutes = [...colonnesBoker, ...colonnesFormation];
   const valid = toutes
-    .flatMap(c => notesMensuelles?.[eleveId]?.[c.id] || [])
-    .filter(n => n !== null && n !== '' && n !== undefined && !isNaN(n) && Number(n) !== 0);
+    .flatMap(c => (Array.isArray(notesMensuelles) ? notesMensuelles : [])
+      .filter(n => n.student_id === eleveId && n.subject === c.id)
+      .map(n => n.grade)
+    )
+    .filter(n => n !== null && n !== undefined && !isNaN(n) && Number(n) !== 0);
+    
+  console.log('4. Notes valides pour moyenne générale:', valid);
+  
   if (valid.length === 0) return null;
   return (valid.reduce((a, b) => a + parseFloat(b), 0) / valid.length).toFixed(2);
 };
@@ -116,42 +478,9 @@ const calculerMoyenneGenerale = (eleveId) => {
     return 'grade-green';
   };
 
-  const updateGrade = useCallback(async (eleveId, colId, noteIndex, value) => {
-    const noteValue = value === '' ? null : parseFloat(value);
-    
-    // Utiliser la fonction partagée avec refetch automatique (SYNCHRONISATION IMMÉDIATE)
-    try {
-      const gradesData = {
-        student_id: eleveId,
-        subject: colId, // subject_id → subject
-        week: noteIndex + 1, // N1=week1, N2=week2, etc.
-        notes: [noteValue] // Une seule note par semaine
-      };
-      
-      // Insérer/Mettre à jour dans Supabase
-      await gradesService.upsert(userId, [gradesData], noteIndex + 1);
-      
-      // Synchronisation globale IMMÉDIATE avec Bilan mensuel (MÊME SOURCE SUPABASE)
-      await gradesService.syncAllNotes(userId, notesMensuelles, setNotesMensuelles);
-      
-      console.log(`Dashboard: Note ${noteValue} pour élève ${eleveId}, matière ${colId}, semaine ${noteIndex + 1} synchronisée avec Bilan Mensuel`);
-      
-    } catch (error) {
-      console.error('Erreur lors de la sauvegarde de la note (Dashboard):', error);
-      
-      // En cas d'erreur, forcer la synchronisation globale
-      try {
-        await gradesService.syncAllNotes(userId, notesMensuelles, setNotesMensuelles);
-      } catch (refetchError) {
-        console.error('Erreur lors du refetch après erreur (Dashboard):', refetchError);
-      }
-    }
-  }, [userId]);
-
   // Fonction updateNote (NOUVELLE STRUCTURE PROPRE)
-  const updateNote = useCallback(async (eleveId, subject, weekIndex, value) => {
+  const updateNote = useCallback(async (eleveId, subject, value) => {
     const noteValue = value === '' ? null : parseFloat(value);
-    const weekId = `week${weekIndex + 1}`; // Format: week1, week2, etc.
     
     // Validation des notes 0-100
     if (noteValue !== null && (noteValue < 0 || noteValue > 100)) {
@@ -159,8 +488,24 @@ const calculerMoyenneGenerale = (eleveId) => {
       return;
     }
     
+    console.log("=== RECHERCHE ÉLÈVE ===");
+    console.log("eleves.length:", eleves?.length);
+    console.log("Array.isArray(eleves):", Array.isArray(eleves));
+    console.log("eleveId:", eleveId);
+    console.log("typeof eleveId:", typeof eleveId);
+    console.log("JSON.stringify(eleveId):", JSON.stringify(eleveId));
+    console.log("eleves:", eleves);
+    console.log("ids disponibles avec types:", eleves?.map(e => ({
+      id: e.id,
+      type: typeof e.id
+    })));
+    
     // Trouver l'élève dans la liste locale
-    const eleve = eleves.find(e => e.id === eleveId);
+    const eleve = eleves.find(e => {
+      console.log("comparaison", e.id, eleveId, e.id === eleveId);
+      return e.id === eleveId;
+    });
+    console.log("résultat exact du find:", eleve);
     if (!eleve) {
       console.error('Élève non trouvé:', eleveId);
       return;
@@ -171,11 +516,10 @@ const calculerMoyenneGenerale = (eleveId) => {
       await gradesService.upsert(userId, {
         student_id: eleveId,
         subject: subject,
-        week_id: weekId,
-        value: noteValue
+        grade: noteValue
       });
       
-      console.log(`Note sauvegardée: ${noteValue} pour ${eleve.name}, ${subject}, ${weekId}`);
+      console.log(`Note sauvegardée: ${noteValue} pour ${eleve.name}, ${subject}`);
       
       // Recharger les notes pour synchronisation
       const updatedNotes = await gradesService.getAll(userId);
@@ -184,24 +528,22 @@ const calculerMoyenneGenerale = (eleveId) => {
     } catch (error) {
       console.error('Erreur lors de la sauvegarde de la note:', error);
     }
-  }, [userId, setNotesMensuelles]);
+  }, [userId, eleves, setNotesMensuelles]);
 
-  // Composant pour afficher une matière avec ses notes (NOUVELLE STRUCTURE)
+  // Composant pour afficher une matière avec sa note
   const MatiereRow = memo(({ eleveId, subject, onUpdateNote, onDeleteControle }) => {
-    // Récupérer les notes pour cette matière et cet élève
-    const subjectNotes = notesMensuelles?.filter(note => 
-      note.student_id === eleveId && note.subject === subject
-    ) || [];
+    // Protection pour garantir que notesMensuelles est toujours un array
+    const safeNotes = Array.isArray(notesMensuelles) ? notesMensuelles : [];
     
-    // Organiser les notes par semaine
-    const notesByWeek = {};
-    for (let i = 1; i <= 4; i++) {
-      const weekNote = subjectNotes.find(note => note.week_id === `week${i}`);
-      notesByWeek[`week${i}`] = weekNote?.value || null;
-    }
+    // Récupérer les notes pour cette matière et cet élève
+    const subjectNotes = safeNotes.filter(note => 
+      note.student_id === eleveId && note.subject === subject
+    );
+    
+    const gradeEntry = subjectNotes[0] || null;
     
     // Calculer la moyenne
-    const validNotes = Object.values(notesByWeek).filter(n => n !== null && n !== '' && !isNaN(n));
+    const validNotes = [gradeEntry?.grade].filter(n => n !== null && n !== undefined && n !== '' && !isNaN(n));
     const moyenne = validNotes.length > 0 
       ? (validNotes.reduce((a, b) => a + parseFloat(b), 0) / validNotes.length).toFixed(2)
       : null;
@@ -225,14 +567,12 @@ const calculerMoyenneGenerale = (eleveId) => {
         </div>
         
         <div style={{ display: 'flex', gap: '4px', flex: 1 }}>
-          {Object.entries(notesByWeek).map(([weekId, noteValue], index) => (
-            <NoteInput
-              key={`${eleveId}-${subject}-${weekId}`}
-              value={noteValue}
-              onChange={(value) => onUpdateNote?.(eleveId, subject, index, value)}
-              width="55px"
-            />
-          ))}
+          <NoteInput
+            key={`${eleveId}-${subject}`}
+            value={gradeEntry?.grade ?? ''}
+            onChange={(value) => onUpdateNote?.(eleveId, subject, value)}
+            width="55px"
+          />
         </div>
         
         <div style={{
@@ -353,7 +693,7 @@ const EleveRow = memo(({ eleve, colonnesBoker, colonnesFormation, notesMensuelle
                   const moyenne = moyennesParMatiere[col.id]; // Utiliser la moyenne pré-calculée
                   
                   return (
-                    <div key={col.id} style={{
+                    <div key={`${safeKey}-${col.id || col.nom}`} style={{
                       backgroundColor: 'var(--bg-primary)',
                       padding: '12px',
                       borderRadius: '8px',
@@ -387,6 +727,11 @@ const EleveRow = memo(({ eleve, colonnesBoker, colonnesFormation, notesMensuelle
 EleveRow.displayName = 'EleveRow';
 
   const ajouterEleve = async () => {
+    console.log('=== AJOUT ÉLÈVE - DÉBUT PROCESSUS ===');
+    console.log('1. Données formulaire:', newEleve);
+    console.log('2. User ID:', userId);
+    console.log('3. Élèves actuels avant ajout:', eleves?.map(e => ({ id: e.id, name: `${e.firstName} ${e.lastName}` })) || []);
+    
     if (newEleve.firstName.trim() && newEleve.lastName.trim()) {
       try {
         const studentData = {
@@ -394,19 +739,142 @@ EleveRow.displayName = 'EleveRow';
           last_name: newEleve.lastName.trim(),
         };
         
-        const newStudent = await studentsService.create(userId, studentData);
-        const formattedStudent = {
-          id: newStudent.id,
-          firstName: newStudent.first_name,
-          lastName: newStudent.last_name,
+        console.log('4. StudentData pour Supabase:', studentData);
+        
+        // Optimistic update : ajouter l'élève localement immédiatement
+        const tempId = `temp-${Date.now()}`;
+        const optimisticStudent = {
+          id: tempId,
+          firstName: newEleve.firstName.trim(),
+          lastName: newEleve.lastName.trim(),
         };
         
-        setEleves([...eleves, formattedStudent]);
+        console.log('5. Élève optimiste (temporaire):', optimisticStudent);
+        
+        // Ajouter immédiatement au state pour un feedback instantané
+        setEleves(prev => {
+          const newEleves = [...prev, optimisticStudent];
+          console.log('6. Élèves après ajout optimiste:', newEleves.map(e => ({ id: e.id, name: `${e.firstName} ${e.lastName}` })));
+          return newEleves;
+        });
+        
         setNewEleve({ firstName: '', lastName: '' });
         setShowAddForm(false);
+        
+        console.log('7. Création dans Supabase en cours...');
+        
+        // Créer l'élève dans Supabase
+        const newStudent = await studentsService.create(userId, studentData);
+        console.log('8. ÉLÈVE CRÉÉ DANS SUPABASE:', newStudent);
+        console.log('   - newStudent.id:', newStudent?.id);
+        console.log('   - newStudent.name:', newStudent?.name);
+        console.log('   - newStudent.user_id:', newStudent?.user_id);
+        
+        // DEBUG FINAL - Vérification critique
+        console.log('=== DEBUG FINAL - CRITICAL POINTS ===');
+        console.log('create response:', newStudent);
+        console.log('tempId:', tempId);
+        console.log('newStudent.id:', newStudent?.id);
+        console.log('tempId type:', typeof tempId);
+        console.log('newStudent.id type:', typeof newStudent?.id);
+        console.log('tempId === newStudent.id:', tempId === newStudent?.id);
+        
+        if (!newStudent?.id) {
+          console.error('❌ ERREUR CRITIQUE: newStudent.id est null ou undefined');
+          throw new Error('ID Supabase non généré');
+        }
+        
+        const formattedStudent = {
+          id: newStudent.id,
+          firstName: newEleve.firstName.trim(),
+          lastName: newEleve.lastName.trim(),
+        };
+        
+        console.log('9. ÉLÈVE FORMATÉ POUR STATE:', formattedStudent);
+        
+        // Remplacer l'élève temporaire par l'élève réel
+        setEleves(prev => {
+          console.log('=== REMPLACEMENT OPTIMISTIC UPDATE ===');
+          console.log('Élèves avant remplacement:', prev.map(e => ({ id: e.id, name: `${e.firstName} ${e.lastName}`, isTemp: e.id === tempId })));
+          console.log('Recherche de tempId:', tempId);
+          console.log('Élève à remplacer trouvé:', prev.some(e => e.id === tempId));
+          
+          const updatedEleves = prev.map(e => {
+            if (e.id === tempId) {
+              console.log('✅ Élève temporaire trouvé et remplacé:', e.id, '→', formattedStudent.id);
+              return formattedStudent;
+            }
+            return e;
+          });
+          
+          console.log('Élèves après remplacement:', updatedEleves.map(e => ({ id: e.id, name: `${e.firstName} ${e.lastName}`, wasTemp: e.id === tempId })));
+          
+          // Vérifier qu'il n'y a pas de double
+          const tempStillExists = updatedEleves.some(e => e.id === tempId);
+          const realExists = updatedEleves.some(e => e.id === formattedStudent.id);
+          
+          console.log('Vérification post-remplacement:');
+          console.log('- tempId existe encore:', tempStillExists);
+          console.log('- newStudent.id existe:', realExists);
+          
+          if (tempStillExists) {
+            console.error('❌ ERREUR: tempId existe encore après remplacement');
+          }
+          if (!realExists) {
+            console.error('❌ ERREUR: newStudent.id pas trouvé après remplacement');
+          }
+          
+          return updatedEleves;
+        });
+        
+        // SYNCHRONISATION AUTOMATIQUE APRÈS CRÉATION
+        console.log('=== SYNCHRONISATION AUTOMATIQUE APRÈS CRÉATION ÉLÈVE ===');
+        
+        try {
+          const syncResult = await syncAfterStudentAdd();
+          
+          if (syncResult) {
+            // Mettre à jour les states avec les données synchronisées
+            setEleves(syncResult.students);
+            if (setNotesMensuelles) {
+              setNotesMensuelles(syncResult.grades);
+            }
+            
+            console.log('✅ SYNCHRONISATION RÉUSSIE APRÈS CRÉATION:');
+            console.log('   - Students:', syncResult.students.length);
+            console.log('   - Grades:', syncResult.grades.length);
+            console.log('   - Cohérent:', syncResult.isConsistent);
+            
+            if (!syncResult.isConsistent) {
+              console.warn('   - Grades orphelins restants:', syncResult.orphanedCount);
+            }
+          }
+        } catch (syncError) {
+          console.error('❌ Erreur synchronisation après création:', syncError);
+          // En cas d'erreur de sync, recharger manuellement
+          const refreshedStudents = await studentsService.getAll(userId);
+          const formattedStudents = refreshedStudents.map(student => {
+            const nameParts = student.name ? student.name.split(' ') : ['', ''];
+            return {
+              id: student.id,
+              firstName: nameParts[0] || '',
+              lastName: nameParts.slice(1).join(' ') || '',
+            };
+          });
+          setEleves(formattedStudents);
+        }
+        
       } catch (error) {
-        console.error('Erreur lors de l\'ajout de l\'élève:', error);
-        alert('Erreur lors de l\'ajout de l\'élève');
+        console.error('❌ ERREUR LORS DE L\'AJOUT DE L\'ÉLÈVE:', error);
+        console.error('Détails complets de l\'erreur:', error.message, error.code, error.details);
+        
+        // En cas d'erreur, recharger les élèves pour corriger l'état
+        console.log('🔄 RECHARGEMENT DES ÉLÈVES APRÈS ERREUR...');
+        const { studentsService } = await import('../services/supabaseService.js');
+        const data = await studentsService.getAll(userId);
+        setEleves(data || []);
+        
+        alert(`Erreur lors de l'ajout de l'élève: ${error.message}`);
       }
     }
   };
@@ -414,8 +882,20 @@ EleveRow.displayName = 'EleveRow';
   const supprimerEleve = async (eleveId) => {
     if (window.confirm('Voulez-vous vraiment supprimer cet élève ?')) {
       try {
+        // Optimistic update : supprimer immédiatement du state
+        const originalEleves = [...eleves];
+        const originalNotes = [...notesMensuelles];
+        
+        setEleves(prev => prev.filter(e => e.id !== eleveId));
+        
+        // Mettre à jour les notes locales (garde toujours un array)
+        setNotesMensuelles(prev => {
+          const safePrev = Array.isArray(prev) ? prev : [];
+          return safePrev.filter(note => note.student_id !== eleveId);
+        });
+        
+        // Supprimer l'élève dans Supabase
         await studentsService.delete(userId, eleveId);
-        setEleves(eleves.filter(e => e.id !== eleveId));
         
         // Supprimer aussi les notes de l'élève dans Supabase
         const allColonnes = [...colonnesBoker, ...colonnesFormation];
@@ -423,14 +903,11 @@ EleveRow.displayName = 'EleveRow';
           await gradesService.delete(userId, eleveId, col.id);
         }
         
-        // Mettre à jour les notes locales
-        setNotesMensuelles(prev => {
-          const copy = { ...prev };
-          delete copy[eleveId];
-          return copy;
-        });
       } catch (error) {
         console.error('Erreur lors de la suppression de l\'élève:', error);
+        // En cas d'erreur, restaurer l'état original
+        setEleves(originalEleves);
+        setNotesMensuelles(originalNotes);
         alert('Erreur lors de la suppression de l\'élève');
       }
     }
@@ -461,7 +938,7 @@ EleveRow.displayName = 'EleveRow';
 
   const reinitialiserToutesNotes = () => {
     if (window.confirm('Réinitialiser toutes les notes ?')) {
-      setNotesMensuelles({});
+      setNotesMensuelles([]);
     }
   };
 
@@ -482,24 +959,34 @@ EleveRow.displayName = 'EleveRow';
     return (validNotes.reduce((a, b) => a + parseFloat(b), 0) / validNotes.length).toFixed(2);
   };
 
+  // Les élèves sont chargés par App.jsx et transmis via props.
+
+  // Protection pour garantir que notesMensuelles est toujours un array
+  const safeNotesMensuelles = Array.isArray(notesMensuelles) ? notesMensuelles : [];
+  
   // Optimisation : calculer les moyennes avec la nouvelle structure Supabase
   const elevesAvecMoyennes = useMemo(() => {
+    // S'assurer que les données sont valides
+    if (!memoizedEleves || memoizedEleves.length === 0) {
+      return [];
+    }
+    
     return memoizedEleves.map(eleve => {
       const toutesColonnes = [...memoizedColonnesBoker, ...memoizedColonnesFormation];
       
-      // Adapter à la nouvelle structure : notesMensuelles est un tableau d'objets
-      const eleveNotes = notesMensuelles?.filter(note => note.student_id === eleve.id) || [];
+      // Utiliser safeNotesMensuelles (garanti array)
+      const eleveNotes = safeNotesMensuelles.filter(note => note.student_id === eleve.id);
       
       // Calculer les moyennes par matière
       const moyennesParMatiere = {};
       toutesColonnes.forEach(col => {
         const subjectNotes = eleveNotes.filter(note => note.subject === col.id);
-        const validNotes = subjectNotes.map(note => note.value).filter(n => n !== null && n !== undefined && !isNaN(n));
+        const validNotes = subjectNotes.map(note => note.grade).filter(n => n !== null && n !== undefined && !isNaN(n));
         moyennesParMatiere[col.id] = calculerMoyenne(validNotes);
       });
       
       // Calculer la moyenne générale
-      const toutesNotes = eleveNotes.map(note => note.value).filter(n => n !== null && n !== undefined && !isNaN(n));
+      const toutesNotes = eleveNotes.map(note => note.grade).filter(n => n !== null && n !== undefined && !isNaN(n));
       const moyenneGenerale = calculerMoyenne(toutesNotes);
       
       return {
@@ -523,7 +1010,7 @@ EleveRow.displayName = 'EleveRow';
   return (
     <div ref={dashboardRef} style={{ backgroundColor: 'var(--bg-primary)', minHeight: '100vh', width: '100vw', overflowX: 'hidden' }}>
 
-      {/* Bandeau semaine */}
+      {/* Bandeau semaine - SEUL header authentique */}
       <BandeauSemaine 
         theme={theme}
         semaineActuelle={semaineActuelle}
@@ -545,6 +1032,33 @@ EleveRow.displayName = 'EleveRow';
         <Button onClick={() => setShowModal(true)} variant="premium" size="medium">+ Ajouter un contrôle</Button>
         <Button onClick={reinitialiserToutesNotes} variant="secondary" size="medium">Réinitialiser les notes</Button>
       </div>
+
+      {/* Dashboard vide - afficher un message clair */}
+      {memoizedEleves.length === 0 && (
+        <div style={{ 
+          padding: '3rem 1.5rem', 
+          textAlign: 'center',
+          backgroundColor: '#faf8f3',
+          margin: '1rem 1.5rem',
+          borderRadius: '8px',
+          border: '1px solid #e8dcc0'
+        }}>
+          <h3 style={{ color: '#5d4e37', marginBottom: '1rem' }}>
+            Bienvenue sur votre espace de gestion
+          </h3>
+          <p style={{ color: '#5d4e37', marginBottom: '2rem' }}>
+            Commencez par ajouter votre premier élève pour commencer à suivre les notes.
+          </p>
+          <Button 
+            onClick={() => setShowAddForm(true)} 
+            variant="premium" 
+            size="large"
+            style={{ padding: '12px 24px' }}
+          >
+            Ajouter un élève
+          </Button>
+        </div>
+      )}
 
       {/* Formulaire ajout élève */}
       {showAddForm && (
@@ -630,7 +1144,7 @@ EleveRow.displayName = 'EleveRow';
               </th>
               {/* Colonnes Boker - Doré */}
               {memoizedColonnesBoker.map(col => (
-                <th key={col.id} style={{ 
+                <th key={`boker-${col.id || col.nom}`} style={{ 
                   padding: '12px 8px', 
                   textAlign: 'center', 
                   border: '1px solid #d4af37',
@@ -643,7 +1157,7 @@ EleveRow.displayName = 'EleveRow';
               ))}
               {/* Colonnes Formation - Doré */}
               {memoizedColonnesFormation.map(col => (
-                <th key={col.id} style={{ 
+                <th key={`formation-${col.id || col.nom}`} style={{ 
                   padding: '12px 8px', 
                   textAlign: 'center', 
                   border: '1px solid #d4af37',
@@ -658,10 +1172,8 @@ EleveRow.displayName = 'EleveRow';
           </thead>
           <tbody>
             {elevesAvecMoyennes.map((eleve, index) => {
-              // Utiliser une clé de fallback si l'ID est manquant
-              const safeKey = eleve.id || `${eleve.firstName}-${eleve.lastName}-${index}`;
-              
-              console.log('Rendu élève avec clé:', safeKey, eleve.firstName, eleve.lastName, 'ID:', eleve.id);
+              // Clé composée robuste - jamais null
+              const safeKey = `eleve-${eleve.id || `${eleve.firstName}-${eleve.lastName}`}-${index}`;
               
               return (
                 <React.Fragment key={safeKey}>
@@ -673,19 +1185,40 @@ EleveRow.displayName = 'EleveRow';
                       fontWeight: 'bold',
                       color: '#5d4e37'
                     }}>
-                      {eleve.firstName} {eleve.lastName}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{eleve.firstName} {eleve.lastName}</span>
+                        <button
+                          onClick={() => supprimerEleve(eleve.id)}
+                          style={{
+                            backgroundColor: '#ff4444',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            transition: 'background-color 0.2s',
+                            marginLeft: '8px'
+                          }}
+                          onMouseEnter={(e) => e.target.style.backgroundColor = '#cc0000'}
+                          onMouseLeave={(e) => e.target.style.backgroundColor = '#ff4444'}
+                          title="Supprimer l'élève"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </td>
                   {/* Colonnes Boker */}
                   {memoizedColonnesBoker.map(col => {
-                    // Adapter à la nouvelle structure Supabase
-                    const eleveNotes = notesMensuelles?.filter(note => note.student_id === eleve.id && note.subject === col.id) || [];
-                    const validNotes = eleveNotes.map(note => note.value).filter(n => n !== null && n !== undefined && !isNaN(n));
+                    // Utiliser safeNotesMensuelles (garanti array)
+                    const eleveNotes = safeNotesMensuelles.filter(note => note.student_id === eleve.id && note.subject === col.id);
+                    const validNotes = eleveNotes.map(note => note.grade).filter(n => n !== null && n !== undefined && !isNaN(n));
                     const moyenne = validNotes.length > 0 
                       ? (validNotes.reduce((a, b) => a + parseFloat(b), 0) / validNotes.length).toFixed(2)
                       : null;
                     
                     return (
-                      <td key={col.id} style={{ 
+                      <td key={`${safeKey}-${col.id || col.nom}`} style={{ 
                         padding: '12px 8px', 
                         textAlign: 'center', 
                         border: '1px solid #e8dcc0',
@@ -693,8 +1226,8 @@ EleveRow.displayName = 'EleveRow';
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }}>
                           <NoteInput
-                            value={eleveNotes.find(note => note.week_id === `week${semaineActuelle}`)?.value ?? ''}
-                            onChange={(value) => updateNote(eleve.id, col.id, semaineActuelle - 1, value)}
+                            value={eleveNotes[0]?.grade ?? ''}
+                            onChange={(value) => updateNote(eleve.id, col.id, value)}
                             width="60px"
                           />
                           {moyenne !== null && (
@@ -712,15 +1245,15 @@ EleveRow.displayName = 'EleveRow';
                   })}
                   {/* Colonnes Formation */}
                   {memoizedColonnesFormation.map(col => {
-                    // Adapter à la nouvelle structure Supabase
-                    const eleveNotes = notesMensuelles?.filter(note => note.student_id === eleve.id && note.subject === col.id) || [];
-                    const validNotes = eleveNotes.map(note => note.value).filter(n => n !== null && n !== undefined && !isNaN(n));
+                    // Utiliser safeNotesMensuelles (garanti array)
+                    const eleveNotes = safeNotesMensuelles.filter(note => note.student_id === eleve.id && note.subject === col.id);
+                    const validNotes = eleveNotes.map(note => note.grade).filter(n => n !== null && n !== undefined && !isNaN(n));
                     const moyenne = validNotes.length > 0 
                       ? (validNotes.reduce((a, b) => a + parseFloat(b), 0) / validNotes.length).toFixed(2)
                       : null;
                     
                     return (
-                      <td key={col.id} style={{ 
+                      <td key={`${safeKey}-${col.id || col.nom}`} style={{ 
                         padding: '12px 8px', 
                         textAlign: 'center', 
                         border: '1px solid #e8dcc0',
@@ -728,8 +1261,8 @@ EleveRow.displayName = 'EleveRow';
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }}>
                           <NoteInput
-                            value={eleveNotes.find(note => note.week_id === `week${semaineActuelle}`)?.value ?? ''}
-                            onChange={(value) => updateNote(eleve.id, col.id, semaineActuelle - 1, value)}
+                            value={eleveNotes[0]?.grade ?? ''}
+                            onChange={(value) => updateNote(eleve.id, col.id, value)}
                             width="60px"
                           />
                           {moyenne !== null && (

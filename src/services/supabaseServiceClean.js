@@ -84,10 +84,9 @@ export const gradesService = {
           user_id: userId,
           student_id: gradeData.student_id,
           subject: gradeData.subject,
-          week_id: gradeData.week_id,
-          value: gradeData.value
+          grade: gradeData.grade
         }, {
-          onConflict: 'user_id,student_id,subject,week_id'
+          onConflict: 'user_id,student_id,subject'
         })
         .select();
 
@@ -100,15 +99,14 @@ export const gradesService = {
   },
 
   // Supprimer une note
-  async delete(userId, studentId, subject, weekId) {
+  async delete(userId, studentId, subject) {
     try {
       const { error } = await supabase
         .from('grades')
         .delete()
         .eq('user_id', userId)
         .eq('student_id', studentId)
-        .eq('subject', subject)
-        .eq('week_id', weekId);
+        .eq('subject', subject);
 
       if (error) throw error;
     } catch (error) {
