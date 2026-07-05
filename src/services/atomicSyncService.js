@@ -5,13 +5,16 @@ import { studentsService, gradesService } from './supabaseService.js';
 
 export const atomicSyncService = {
   // Synchronisation atomique - charge students ET grades dans une seule transaction logique
-  async syncAtomicData(userId) {
+  async syncAtomicData(userId, sessionContext = null) {
     console.log('=== SYNCHRONISATION ATOMIQUE DES DONNÉES ===');
     
     try {
       // ÉTAPE 1: Charger les students (obligatoire)
       console.log('1. Chargement des students...');
-      const studentsData = await studentsService.getAll(userId);
+      const studentsData = await studentsService.getAll(userId, sessionContext);
+      console.log('atomicSyncService reçoit studentsData isArray:', Array.isArray(studentsData));
+      console.log('atomicSyncService reçoit studentsData length:', studentsData?.length || 0);
+      console.log('atomicSyncService reçoit studentsData ids:', Array.isArray(studentsData) ? studentsData.map(student => student.id) : []);
       
       if (!Array.isArray(studentsData)) {
         console.error('❌ studentsData n\'est pas un array:', typeof studentsData);
@@ -22,7 +25,7 @@ export const atomicSyncService = {
       
       // ÉTAPE 2: Charger les grades (dépendant des students)
       console.log('2. Chargement des grades...');
-      const gradesData = await gradesService.getAll(userId);
+      const gradesData = await gradesService.getAll(userId, sessionContext);
       
       if (!Array.isArray(gradesData)) {
         console.error('❌ gradesData n\'est pas un array:', typeof gradesData);
@@ -44,7 +47,7 @@ export const atomicSyncService = {
       
       // ÉTAPE 4: Nettoyage des grades orphelins (si nécessaire)
       let cleanedGrades = gradesData;
-      if (orphanedGrades.length > 0) {
+      if (orphanedGrades.length > 0 && sessionContext?.role !== 'teacher') {
         console.log('4. Nettoyage des grades orphelins...');
         cleanedGrades = gradesData.filter(g => studentIds.has(g.student_id));
         console.log('   - Grades avant nettoyage:', gradesData.length);
@@ -82,13 +85,15 @@ export const atomicSyncService = {
       
       console.log('   - Students formatés:', formattedStudents.length);
       console.log('   - IDs students formatés:', formattedStudents.map(s => s.id));
-      console.log('   - Vérification ID problématique 588b1c6f-d386-4250-a51e-7d0c981d6c3d:', 
-        formattedStudents.some(s => s.id === '588b1c6f-d386-4250-a51e-7d0c981d6c3d') ? '✅ PRÉSENT' : '❌ ABSENT');
+      console.log('atomicSyncService retourne syncResult.students length:', formattedStudents.length);
+      console.log('atomicSyncService retourne syncResult.students ids:', formattedStudents.map(s => s.id));
       
       // Normaliser les grades pour garantir la cohérence
       const normalizedGrades = cleanedGrades.map(grade => ({
         id: grade.id,
         user_id: grade.user_id,
+        school_id: grade.school_id,
+        teacher_id: grade.teacher_id,
         student_id: grade.student_id,
         subject: grade.subject,
         grade: grade.grade,
@@ -131,7 +136,7 @@ export const atomicSyncService = {
   },
 
   // Synchronisation après mutation (ajout/suppression/modification)
-  async syncAfterMutation(userId, mutationType, data) {
+  async syncAfterMutation(userId, mutationType, data, sessionContext = null) {
     console.log(`=== SYNCHRONISATION APRÈS MUTATION: ${mutationType} ===`);
     
     try {
@@ -139,7 +144,7 @@ export const atomicSyncService = {
       await new Promise(resolve => setTimeout(resolve, 500));
       
       // Refaire une synchronisation atomique complète
-      const syncResult = await this.syncAtomicData(userId);
+      const syncResult = await this.syncAtomicData(userId, sessionContext);
       
       console.log(`✅ Synchronisation après ${mutationType} réussie:`, {
         students: syncResult.metadata.studentsCount,
@@ -156,12 +161,12 @@ export const atomicSyncService = {
   },
 
   // Validation de l'état actuel sans modification
-  async validateCurrentState(userId) {
+  async validateCurrentState(userId, sessionContext = null) {
     console.log('=== VALIDATION ÉTAT ACTUEL ===');
     
     try {
-      const students = await studentsService.getAll(userId);
-      const grades = await gradesService.getAll(userId);
+      const students = await studentsService.getAll(userId, sessionContext);
+      const grades = await gradesService.getAll(userId, sessionContext);
       
       const studentIds = new Set(students.map(s => s.id));
       const gradeStudentIds = new Set(grades.map(g => g.student_id).filter(Boolean));

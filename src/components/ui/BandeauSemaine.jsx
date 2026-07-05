@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Button from './Button';
 
-function BandeauSemaine({ theme, semaineActuelle, setSemaineActuelle, onMensuel, onTrimestriel, onInspectEleve, selectedEleve, setSelectedEleve, onToggleTheme, onLogout, onProfil, user }) {
+function BandeauSemaine({ theme, semaineActuelle, setSemaineActuelle, onMensuel, onTrimestriel, onInspectEleve, selectedEleve, setSelectedEleve, onToggleTheme, onLogout, onProfil, onTeachers, user }) {
   const [dateDepart, setDateDepart] = useState(new Date());
   const [maintenant, setMaintenant] = useState(new Date());
+  const [isThemeHovered, setIsThemeHovered] = useState(false);
+  const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const audioRef = useRef(null);
 
   // Horloge temps réel
   useEffect(() => {
@@ -27,6 +30,62 @@ function BandeauSemaine({ theme, semaineActuelle, setSemaineActuelle, onMensuel,
       setDateDepart(new Date(savedDateDepart));
     }
   }, []);
+
+  const closeEasterEgg = useCallback(() => {
+    setShowEasterEgg(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, []);
+
+  useEffect(() => {
+    audioRef.current = new Audio('/easter-egg.mp3');
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isThemeHovered) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === '0') {
+        setShowEasterEgg(true);
+        if (audioRef.current) {
+          audioRef.current.currentTime = 0;
+          audioRef.current.play().catch(() => {});
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isThemeHovered]);
+
+  useEffect(() => {
+    if (!showEasterEgg) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closeEasterEgg();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showEasterEgg, closeEasterEgg]);
 
   // Calculer la date affichée en fonction de la semaine actuelle
   const getDateAffichee = () => {
@@ -151,13 +210,16 @@ function BandeauSemaine({ theme, semaineActuelle, setSemaineActuelle, onMensuel,
         gap: '10px'
       }}>
         {/* Boutons de navigation */}
-        <Button onClick={onMensuel} variant="premium" size="small">📊 Mensuel</Button>
-        <Button onClick={onTrimestriel} variant="premium" size="small">📈 Trimestriel</Button>
-        <Button onClick={onInspectEleve} variant="premium" size="small">🔍 Élève</Button>
+        {onMensuel && <Button onClick={onMensuel} variant="premium" size="small">📊 Mensuel</Button>}
+        {onTrimestriel && <Button onClick={onTrimestriel} variant="premium" size="small">📈 Trimestriel</Button>}
+        {onInspectEleve && <Button onClick={onInspectEleve} variant="premium" size="small">🔍 Élèves</Button>}
+        {onTeachers && <Button onClick={onTeachers} variant="premium" size="small">👨‍🏫 Professeurs</Button>}
         
         {/* Bouton thème */}
         <Button
           onClick={onToggleTheme}
+          onMouseEnter={() => setIsThemeHovered(true)}
+          onMouseLeave={() => setIsThemeHovered(false)}
           variant="secondary"
           size="small"
         >
@@ -165,7 +227,7 @@ function BandeauSemaine({ theme, semaineActuelle, setSemaineActuelle, onMensuel,
         </Button>
 
         {/* Icône profil */}
-        <Button
+        {onProfil && <Button
           onClick={onProfil}
           variant="premium"
           size="small"
@@ -193,8 +255,37 @@ function BandeauSemaine({ theme, semaineActuelle, setSemaineActuelle, onMensuel,
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
             <circle cx="12" cy="7" r="4"/>
           </svg>
-        </Button>
+        </Button>}
       </div>
+
+      {showEasterEgg && (
+        <div
+          onClick={closeEasterEgg}
+          role="button"
+          tabIndex={0}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.88)',
+            zIndex: 2147483647,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            cursor: 'pointer'
+          }}
+        >
+          <img
+            src="/easter-egg.jpg"
+            alt="Easter egg"
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              objectFit: 'contain'
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

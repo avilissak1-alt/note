@@ -3,13 +3,40 @@ import { supabase } from '../lib/supabase';
 // Service pour gérer les élèves (NOUVELLE STRUCTURE PROPRE)
 export const studentsService = {
   // Récupérer tous les élèves d'un utilisateur
-  async getAll(userId) {
+  async getAll(userId, sessionContext = null) {
     try {
-      const { data, error } = await supabase
+      console.log('=== STUDENTS SERVICE GETALL ===');
+      console.log('studentsService.getAll userId:', userId);
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      console.log('studentsService.getAll session error:', sessionError);
+      console.log('studentsService.getAll session.user.id:', sessionData?.session?.user?.id || null);
+      console.log('studentsService.getAll userId === session.user.id:', userId === sessionData?.session?.user?.id);
+      console.log('studentsService.getAll requête:', ".from('students').select('*').eq('user_id', userId).order('created_at', { ascending: true })");
+      const { data: visibleStudents, error: visibleStudentsError } = await supabase
         .from('students')
         .select('*')
-        .eq('user_id', userId)
+        .limit(5);
+      console.log('studentsService.getAll RLS visible students error:', visibleStudentsError);
+      console.log('studentsService.getAll RLS visible students length:', visibleStudents?.length || 0);
+      console.log('studentsService.getAll RLS visible students rows:', visibleStudents || []);
+      let query = supabase
+        .from('students')
+        .select('*')
         .order('created_at', { ascending: true });
+
+      if (sessionContext?.schoolId) {
+        query = query.eq('school_id', sessionContext.schoolId);
+      } else if (userId) {
+        query = query.eq('user_id', userId);
+      }
+
+      const { data, error } = await query;
+
+      console.log('studentsService.getAll error:', error);
+      console.log('studentsService.getAll data isArray:', Array.isArray(data));
+      console.log('studentsService.getAll data length:', data?.length || 0);
+      console.log('studentsService.getAll raw ids:', Array.isArray(data) ? data.map(student => student.id) : []);
+      console.log('studentsService.getAll raw rows:', data || []);
 
       if (error) throw error;
       return data || [];
@@ -20,7 +47,7 @@ export const studentsService = {
   },
 
   // Créer un nouvel élève avec vrai ID Supabase
-  async create(userId, studentData) {
+  async create(userId, studentData, sessionContext = null) {
     console.log('=== STUDENTS SERVICE - CRÉATION ÉLÈVE ===');
     console.log('1. User ID:', userId);
     console.log('2. StudentData reçu:', studentData);
@@ -31,7 +58,8 @@ export const studentsService = {
       
       const insertData = {
         user_id: userId,
-        name: studentName
+        name: studentName,
+        ...(sessionContext?.schoolId ? { school_id: sessionContext.schoolId } : {})
       };
       
       console.log('4. Données pour insertion Supabase:', insertData);
@@ -79,16 +107,23 @@ export const studentsService = {
 // Service pour gérer les notes (NOUVELLE STRUCTURE PROPRE)
 export const gradesService = {
   // Récupérer toutes les notes d'un utilisateur
-  async getAll(userId) {
+  async getAll(userId, sessionContext = null) {
     try {
       console.log('=== DIAGNOSTIC TABLES SUPABASE ===');
       
       // Vérifier la structure de la table grades
-      const { data: gradesData, error: gradesError } = await supabase
+      let gradesDiagnosticQuery = supabase
         .from('grades')
         .select('*')
-        .eq('user_id', userId)
         .limit(1);
+
+      if (sessionContext?.schoolId) {
+        gradesDiagnosticQuery = gradesDiagnosticQuery.eq('school_id', sessionContext.schoolId);
+      } else if (userId) {
+        gradesDiagnosticQuery = gradesDiagnosticQuery.eq('user_id', userId);
+      }
+
+      const { data: gradesData, error: gradesError } = await gradesDiagnosticQuery;
 
       if (gradesError) {
         console.error('Erreur grades:', gradesError);
@@ -115,11 +150,18 @@ export const gradesService = {
       }
       
       // Vérifier la structure de la table students
-      const { data: studentsData, error: studentsError } = await supabase
+      let studentsDiagnosticQuery = supabase
         .from('students')
         .select('*')
-        .eq('user_id', userId)
         .limit(1);
+
+      if (sessionContext?.schoolId) {
+        studentsDiagnosticQuery = studentsDiagnosticQuery.eq('school_id', sessionContext.schoolId);
+      } else if (userId) {
+        studentsDiagnosticQuery = studentsDiagnosticQuery.eq('user_id', userId);
+      }
+
+      const { data: studentsData, error: studentsError } = await studentsDiagnosticQuery;
 
       if (studentsError) {
         console.error('Erreur students:', studentsError);
@@ -134,11 +176,27 @@ export const gradesService = {
       }
 
       // Récupérer toutes les notes avec validation stricte
-      const { data, error } = await supabase
+      let query = supabase
         .from('grades')
         .select('*')
-        .eq('user_id', userId)
         .order('created_at', { ascending: true });
+
+      if (sessionContext?.schoolId) {
+        query = query.eq('school_id', sessionContext.schoolId);
+      } else if (userId) {
+        query = query.eq('user_id', userId);
+      }
+
+      if (sessionContext?.role === 'teacher') {
+        if (sessionContext.teacherId) {
+          query = query.eq('teacher_id', sessionContext.teacherId);
+        }
+        if (sessionContext.teacherSubject) {
+          query = query.like('subject', `${sessionContext.teacherSubject}_week_%`);
+        }
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error('❌ ERREUR FETCH GRADES:', error);
@@ -168,7 +226,7 @@ export const gradesService = {
   },
 
   // Sauvegarder une note (AVEC GESTION ERREURS FOREIGN KEY)
-  async upsert(userId, gradeData) {
+  async upsert(userId, gradeData, sessionContext = null) {
     try {
       console.log('=== SAUVEGARDE NOTE AVEC VÉRIFICATION ===');
       console.log('Données à sauvegarder:', gradeData);
@@ -176,14 +234,17 @@ export const gradesService = {
       // 1. Vérifier que l'élève existe
       const { data: studentData, error: studentError } = await supabase
         .from('students')
-        .select('id')
+        .select('id, school_id')
         .eq('id', gradeData.student_id)
-        .eq('user_id', userId)
         .single();
 
       if (studentError || !studentData) {
         console.error('❌ Élève non trouvé:', gradeData.student_id);
         throw new Error(`Élève ${gradeData.student_id} non trouvé dans la base de données`);
+      }
+      
+      if (sessionContext?.schoolId && studentData.school_id !== sessionContext.schoolId) {
+        throw new Error('Accès interdit à cet élève.');
       }
       
       console.log('✅ Élève vérifié:', studentData);
@@ -192,11 +253,22 @@ export const gradesService = {
       console.log('2. VALIDATION STRUCTURE DONNÉES...');
       
       // Validation et normalisation des données avant envoi
+      if (sessionContext?.role === 'teacher') {
+        const allowedSubject = sessionContext.teacherSubject;
+        const requestedSubject = String(gradeData.subject || '');
+
+        if (!allowedSubject || !requestedSubject.startsWith(`${allowedSubject}_week_`)) {
+          throw new Error('Accès interdit à cette matière.');
+        }
+      }
+
       const normalizedGradeData = {
         user_id: userId,
         student_id: gradeData.student_id,
         subject: gradeData.subject,
-        grade: gradeData.grade
+        grade: gradeData.grade,
+        ...(sessionContext?.schoolId ? { school_id: sessionContext.schoolId } : {}),
+        ...(sessionContext?.teacherId ? { teacher_id: sessionContext.teacherId } : {})
       };
       
       console.log('Données normalisées:', normalizedGradeData);
@@ -204,7 +276,7 @@ export const gradesService = {
       const { data, error } = await supabase
         .from('grades')
         .upsert(normalizedGradeData, {
-          onConflict: 'user_id,student_id,subject'
+          onConflict: sessionContext?.schoolId ? 'school_id,student_id,subject' : 'user_id,student_id,subject'
         })
         .select();
 
@@ -237,6 +309,21 @@ export const gradesService = {
       if (error) throw error;
     } catch (error) {
       console.error('Erreur lors de la suppression de la note:', error);
+      throw error;
+    }
+  },
+
+  // Supprimer toutes les notes de l'utilisateur connecté
+  async deleteAll(userId) {
+    try {
+      const { error } = await supabase
+        .from('grades')
+        .delete()
+        .eq('user_id', userId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Erreur lors de la suppression de toutes les notes:', error);
       throw error;
     }
   }

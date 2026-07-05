@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { multiSchoolService } from '../services/multiSchoolService.js';
 import Button from '../components/ui/Button.jsx';
 import { theme, styles } from '../styles/theme.js';
 
-const AuthPage = () => {
+const AuthPage = ({ expectedRole, onBack }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -265,12 +266,12 @@ const AuthPage = () => {
           return;
         }
         
-        // Réinitialiser les tentatives en cas de succès
+        await multiSchoolService.buildSessionContext(data.user.id, expectedRole);
+        
         setLoginAttempts(0);
         setIsBlocked(false);
         setBlockTimeRemaining(0);
         
-        // Connexion réussie - redirection automatique via onAuthStateChange
         console.log('Connexion réussie pour:', email.toLowerCase().trim());
       } else {
         // INSCRIPTION - créer un nouveau compte
@@ -302,11 +303,12 @@ const AuthPage = () => {
         console.log('Inscription réussie pour:', email.toLowerCase().trim());
       }
     } catch (error) {
+      await supabase.auth.signOut();
       setError(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [email, password, confirmPassword, isLogin, loginAttempts, isBlocked, blockTimeRemaining]);
+  }, [email, password, confirmPassword, isLogin, loginAttempts, isBlocked, blockTimeRemaining, expectedRole]);
 
   // Nettoyer les timeouts au démontage
   React.useEffect(() => {
@@ -343,7 +345,7 @@ const AuthPage = () => {
             fontSize: theme.typography.fontSize.lg,
             fontFamily: theme.typography.fontFamily
           }}>
-            {isLogin ? 'Connectez-vous à votre espace' : 'Créez votre compte'}
+            Connexion {expectedRole === 'director' ? 'Directeur' : 'Professeur'}
           </p>
         </div>
 
@@ -579,17 +581,11 @@ const AuthPage = () => {
         <div style={{ textAlign: 'center', marginTop: '2rem' }}>
           <Button
             type="button"
-            onClick={() => {
-              setIsLogin(!isLogin);
-              setError('');
-              setLoginAttempts(0);
-              setIsBlocked(false);
-              setBlockTimeRemaining(0);
-            }}
+            onClick={onBack}
             variant="secondary"
             size="medium"
           >
-            {isLogin ? 'Pas encore de compte ? Créez-en un' : 'Déjà un compte ? Connectez-vous'}
+            Retour au choix du rôle
           </Button>
         </div>
       </div>

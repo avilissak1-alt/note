@@ -1,35 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { getWeeklySubjectKey } from '../../utils/gradeAnalysis.js';
 
-function BilanTrimestriel({ onBack, theme, eleves, setEleves, colonnesBoker = [], setColonnesBoker = () => {}, colonnesFormation = [], setColonnesFormation = () => {} }) {
-  const [notesTrimestrielles, setNotesTrimestrielles] = useState({});
+function BilanTrimestriel({ onBack, theme, eleves, setEleves, colonnesBoker = [], setColonnesBoker = () => {}, colonnesFormation = [], setColonnesFormation = () => {}, notesMensuelles = [] }) {
   const [showModal, setShowModal] = useState(false);
   const [nomControle, setNomControle] = useState('');
   const [matiereChoisie, setMatiereChoisie] = useState('');
 
-  useEffect(() => {
-    const saved = localStorage.getItem('notesTrimestrielles');
-    if (saved) setNotesTrimestrielles(JSON.parse(saved));
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('notesTrimestrielles', JSON.stringify(notesTrimestrielles));
-  }, [notesTrimestrielles]);
-
-  const updateNote = (eleveId, trimestre, colonneId, value) => {
-    setNotesTrimestrielles(prev => ({
-      ...prev,
-      [eleveId]: {
-        ...(prev[eleveId] || {}),
-        [trimestre]: {
-          ...((prev[eleveId] || {})[trimestre] || {}),
-          [colonneId]: value === '' ? null : parseFloat(value)
-        }
-      }
-    }));
-  };
-
   const getNotes = (eleveId, trimestre) => {
-    return notesTrimestrielles?.[eleveId]?.[trimestre] || {};
+    const weekByTrimester = { T1: 1, T2: 2, T3: 3 };
+    const week = weekByTrimester[trimestre];
+    const safeNotes = Array.isArray(notesMensuelles) ? notesMensuelles : [];
+    const notes = {};
+
+    [...colonnesBoker, ...colonnesFormation].forEach((col) => {
+      const gradeEntry = safeNotes.find((note) => note.student_id === eleveId && note.subject === getWeeklySubjectKey(col.id, week));
+      notes[col.id] = gradeEntry?.grade ?? null;
+    });
+
+    return notes;
   };
 
   const calculerMoyenneGroupe = (notes, groupeColonnes) => {
@@ -65,7 +53,6 @@ function BilanTrimestriel({ onBack, theme, eleves, setEleves, colonnesBoker = []
   const supprimerEleve = (eleveId) => {
     if (!window.confirm('Voulez-vous vraiment supprimer cet élève ?')) return;
     setEleves(prev => prev.filter(e => e.id !== eleveId));
-    setNotesTrimestrielles(prev => { const u = { ...prev }; delete u[eleveId]; return u; });
   };
 
   const ajouterControle = () => {
@@ -205,7 +192,7 @@ function BilanTrimestriel({ onBack, theme, eleves, setEleves, colonnesBoker = []
                       <td key={`${trimKey}-${col.id}`} style={{ padding: '6px', textAlign: 'center', borderBottom: '1px solid var(--border-color)' }}>
                         <input type="number" min="0" max="100" step="0.5"
                           value={notes[col.id] ?? ''}
-                          onChange={e => { let v = e.target.value; if (v !== '' && parseFloat(v) > 100) v = '100'; updateNote(eleve.id, trimKey, col.id, v); }}
+                          readOnly
                           style={{ width: '60px', textAlign: 'center', padding: '3px', backgroundColor: 'var(--input-bg)', color: 'var(--input-text)', border: '1px solid var(--border-color)', borderRadius: '4px' }}
                           placeholder="—" />
                       </td>
@@ -219,7 +206,7 @@ function BilanTrimestriel({ onBack, theme, eleves, setEleves, colonnesBoker = []
                       <td key={`${trimKey}-${col.id}`} style={{ padding: '6px', textAlign: 'center', borderBottom: '1px solid var(--border-color)' }}>
                         <input type="number" min="0" max="100" step="0.5"
                           value={notes[col.id] ?? ''}
-                          onChange={e => { let v = e.target.value; if (v !== '' && parseFloat(v) > 100) v = '100'; updateNote(eleve.id, trimKey, col.id, v); }}
+                          readOnly
                           style={{ width: '60px', textAlign: 'center', padding: '3px', backgroundColor: 'var(--input-bg)', color: 'var(--input-text)', border: '1px solid var(--border-color)', borderRadius: '4px' }}
                           placeholder="—" />
                       </td>

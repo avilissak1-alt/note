@@ -7,15 +7,15 @@
     <!-- Content Security Policy pour ignorer les erreurs Google Translate et extensions -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
-        script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob:;
         style-src 'self' 'unsafe-inline' data: blob:;
         img-src 'self' data: blob:;
-        font-src 'self' data:;
-        connect-src 'self' https://*.supabase.co;
-        media-src 'self';
+        font-src 'self' https://fonts.gstatic.com data: blob:;
+        connect-src 'self' https://*.supabase.co https://fonts.gstatic.com data: blob:;
+        media-src 'self' data: blob:;
         object-src 'none';
         frame-src 'none';
-        worker-src 'self' blob:;
+        worker-src 'self' data: blob:;
         form-action 'self';
     ">
 </head>

@@ -1,190 +1,69 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import Button from './Button';
 
 function EleveSelectionPage({ onBack, onEleveSelect, eleves, notesMensuelles, colonnesBoker, colonnesFormation }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const notesArray = Array.isArray(notesMensuelles) ? notesMensuelles : [];
+  const allColumns = [...(colonnesBoker || []), ...(colonnesFormation || [])];
 
-  // Calculer la moyenne générale pour chaque élève
-  const elevesAvecMoyennes = useMemo(() => {
-    return eleves.map(eleve => {
-      const eleveNotes = notesMensuelles[eleve.id] || {};
-      
-      // Calculer la moyenne générale
-      let totalNotes = 0;
-      let countNotes = 0;
-      
-      // Parcourir toutes les matières (Boker + Formation)
-      [...colonnesBoker, ...colonnesFormation].forEach(col => {
-        if (eleveNotes[col.id]) {
-          eleveNotes[col.id].forEach(note => {
-            if (note !== null && note !== undefined && !isNaN(note)) {
-              totalNotes += parseFloat(note);
-              countNotes++;
-            }
-          });
-        }
-      });
-      
-      const moyenneGenerale = countNotes > 0 ? (totalNotes / countNotes).toFixed(2) : null;
-      
-      return {
-        ...eleve,
-        moyenneGenerale,
-        nombreNotes: countNotes
-      };
+  const students = useMemo(() => {
+    return (Array.isArray(eleves) ? eleves : []).map((eleve) => {
+      const studentNotes = notesArray.filter((note) => note.student_id === eleve.id);
+      const validNotes = studentNotes.map((note) => Number(note.grade)).filter((grade) => !Number.isNaN(grade));
+      const average = validNotes.length > 0 ? (validNotes.reduce((sum, grade) => sum + grade, 0) / validNotes.length).toFixed(2) : null;
+      return { ...eleve, average, notesCount: validNotes.length, subjectsCount: new Set(studentNotes.map((note) => note.subject)).size };
     });
-  }, [eleves, notesMensuelles, colonnesBoker, colonnesFormation]);
+  }, [eleves, notesArray]);
 
-  // Filtrer les élèves selon le terme de recherche
-  const elevesFiltres = useMemo(() => {
-    if (!searchTerm) return elevesAvecMoyennes;
-    
-    const term = searchTerm.toLowerCase();
-    return elevesAvecMoyennes.filter(eleve => 
-      eleve.firstName.toLowerCase().includes(term) ||
-      eleve.lastName.toLowerCase().includes(term)
-    );
-  }, [elevesAvecMoyennes, searchTerm]);
+  const filteredStudents = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return students;
+    return students.filter((eleve) => `${eleve.firstName || ''} ${eleve.lastName || ''}`.toLowerCase().includes(term));
+  }, [students, searchTerm]);
 
-  const getClasseMoyenne = (moyenne) => {
-    if (moyenne === null) return '';
-    if (moyenne >= 16) return 'grade-green';
-    if (moyenne >= 12) return 'grade-orange';
-    if (moyenne >= 10) return 'grade-yellow';
-    return 'grade-red';
+  const getAverageColor = (average) => {
+    if (average === null) return 'var(--text-secondary)';
+    const value = Number(average);
+    if (value >= 70) return '#16a34a';
+    if (value >= 50) return '#ea580c';
+    return '#dc2626';
   };
 
   return (
-    <div style={{ 
-      backgroundColor: 'var(--bg-primary)', 
-      minHeight: '92vh',
-      width: '98vw',
-      maxWidth: 'none',
-      margin: '0',
-      padding: '24px 32px'
-    }}>
+    <div style={{ backgroundColor: 'var(--bg-primary)', minHeight: '92vh', width: '98vw', maxWidth: 'none', margin: '0', padding: '24px 32px', fontFamily: 'Palatino, Palatino Linotype, serif' }}>
       <header style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', padding: '0 1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '64px' }}>
-          <button onClick={onBack} style={{ padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            ← Retour
-          </button>
-          <h1 style={{ color: 'var(--text-primary)', fontSize: '1.4rem', fontWeight: 'bold', margin: 0 }}>🔍 Inspecter Élève</h1>
-          <div style={{ width: '200px' }}></div>
+          <Button onClick={onBack} variant="secondary" size="medium">← Retour</Button>
+          <h1 style={{ color: 'var(--text-primary)', fontSize: '1.4rem', fontWeight: 'bold', margin: 0 }}>Module Élèves</h1>
+          <div style={{ width: '96px' }} />
         </div>
       </header>
-
       <main style={{ padding: '2rem 0' }}>
-        {/* Barre de recherche */}
-        <div style={{ marginBottom: '2rem', maxWidth: '600px', margin: '0 auto 2rem' }}>
-          <input
-            type="text"
-            placeholder="Rechercher un élève..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              backgroundColor: 'var(--input-bg)',
-              color: 'var(--input-text)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '8px',
-              fontSize: '16px',
-              fontFamily: 'Palatino, Palatino Linotype, serif'
-            }}
-          />
-        </div>
-
-        {/* Grille d'élèves */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', 
-          gap: '1.5rem',
-          padding: '0 1rem'
-        }}>
-          {elevesFiltres.map(eleve => (
-            <div
-              key={eleve.id}
-              onClick={() => onEleveSelect(eleve)}
-              style={{
-                backgroundColor: 'var(--bg-secondary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '12px',
-                padding: '1.5rem',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                fontFamily: 'Palatino, Palatino Linotype, serif'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-4px)';
-                e.currentTarget.style.boxShadow = '0 8px 25px rgba(214, 185, 140, 0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
-                <div>
-                  <h3 style={{ color: 'var(--text-primary)', fontSize: '1.2rem', fontWeight: 'bold', margin: '0 0 0.5rem 0' }}>
-                    {eleve.firstName} {eleve.lastName}
-                  </h3>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>
-                    {eleve.nombreNotes} note{eleve.nombreNotes !== 1 ? 's' : ''} enregistrée{eleve.nombreNotes !== 1 ? 's' : ''}
-                  </p>
-                </div>
-                <div style={{ 
-                  backgroundColor: 'var(--button-primary)', 
-                  color: 'var(--button-text)', 
-                  padding: '8px 12px', 
-                  borderRadius: '8px',
-                  fontSize: '0.8rem',
-                  fontWeight: 'bold'
-                }}>
-                  Détails →
-                </div>
-              </div>
-              
-              <div style={{ textAlign: 'center' }}>
-                {eleve.moyenneGenerale ? (
-                  <div>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                      Moyenne générale
-                    </div>
-                    <div className={getClasseMoyenne(parseFloat(eleve.moyenneGenerale))} style={{ 
-                      fontSize: '1.8rem', 
-                      fontWeight: 'bold',
-                      margin: 0
-                    }}>
-                      {eleve.moyenneGenerale}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>
-                    Aucune note enregistrée
-                  </div>
-                )}
-              </div>
+        <section style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.5rem', marginBottom: '1.5rem', boxShadow: '0 10px 28px rgba(0, 0, 0, 0.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div>
+              <h2 style={{ color: 'var(--text-primary)', margin: '0 0 0.5rem', fontSize: '1.5rem' }}>Liste des élèves</h2>
+              <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Consultez le dossier détaillé de chaque élève et préparez les futurs exports.</p>
             </div>
+            <div style={{ color: 'var(--text-secondary)', fontWeight: '600' }}>{students.length} élève{students.length !== 1 ? 's' : ''} · {allColumns.length} matière{allColumns.length !== 1 ? 's' : ''}</div>
+          </div>
+        </section>
+        <div style={{ maxWidth: '680px', margin: '0 auto 2rem' }}>
+          <input type="text" placeholder="Rechercher un élève..." value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} style={{ width: '100%', padding: '12px 16px', backgroundColor: 'var(--input-bg)', color: 'var(--input-text)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '16px', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
+          {filteredStudents.map((eleve) => (
+            <article key={eleve.id} style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '14px', padding: '1.35rem', boxShadow: '0 8px 22px rgba(0, 0, 0, 0.08)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', marginBottom: '1rem' }}>
+                <div><h3 style={{ color: 'var(--text-primary)', fontSize: '1.25rem', margin: '0 0 0.35rem', fontWeight: 'bold' }}>{eleve.firstName} {eleve.lastName}</h3><p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem' }}>{eleve.notesCount} note{eleve.notesCount !== 1 ? 's' : ''} · {eleve.subjectsCount} matière{eleve.subjectsCount !== 1 ? 's' : ''}</p></div>
+                <div style={{ textAlign: 'right' }}><div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>Moyenne</div><div style={{ color: getAverageColor(eleve.average), fontSize: '1.35rem', fontWeight: 'bold' }}>{eleve.average ?? '—'}</div></div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}><Button onClick={() => onEleveSelect(eleve)} variant="premium" size="small">Voir le dossier</Button><Button variant="secondary" size="small" title="Fonction visuelle pour une future transmission">Transférer</Button></div>
+            </article>
           ))}
         </div>
-
-        {elevesFiltres.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-            <div style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>
-              Aucun élève trouvé
-            </div>
-            <div>
-              {searchTerm ? 'Essayez une autre recherche' : 'Aucun élève enregistré'}
-            </div>
-          </div>
-        )}
+        {filteredStudents.length === 0 && <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '14px' }}>{searchTerm ? 'Aucun élève ne correspond à cette recherche.' : 'Aucun élève enregistré.'}</div>}
       </main>
-
-      <style>{`
-        .grade-green { color: #16a34a; }
-        .grade-orange { color: #ea580c; }
-        .grade-yellow { color: #ca8a04; }
-        .grade-red { color: #dc2626; }
-      `}</style>
     </div>
   );
 }

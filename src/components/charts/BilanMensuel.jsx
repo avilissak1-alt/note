@@ -3,8 +3,9 @@ import Button from '../ui/Button';
 import NoteInput from '../ui/NoteInput';
 import { gradesService } from '../../services/supabaseService.js';
 import { theme as themeConstants, styles } from '../../styles/theme.js';
+import { buildStudentGradeReport, formatGrade, getWeeklySubjectKey } from '../../utils/gradeAnalysis.js';
 
-function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBoker, setColonnesBoker, colonnesFormation, setColonnesFormation, notesMensuelles, setNotesMensuelles, semaineActuelle, userId }) {
+function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBoker, setColonnesBoker, colonnesFormation, setColonnesFormation, notesMensuelles, setNotesMensuelles, semaineActuelle, userId, sessionContext }) {
   // Utiliser le thème des props avec fallback vers le thème importé
   const theme = propTheme || themeConstants;
   
@@ -16,14 +17,18 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
     const checkDataReady = () => {
       const studentsReady = eleves && eleves.length > 0;
       const gradesReady = notesMensuelles && Array.isArray(notesMensuelles);
+      const hasNoGrades = gradesReady && notesMensuelles.length === 0;
       
       console.log('=== BILAN MENSUEL - ÉTAT DES DONNÉES ===');
       console.log('Students ready:', studentsReady);
       console.log('Grades ready:', gradesReady);
       console.log('Students count:', eleves?.length || 0);
+      console.log('Students prop isArray:', Array.isArray(eleves));
+      console.log('Students prop ids:', Array.isArray(eleves) ? eleves.map(student => student.id) : []);
+      console.log('Students prop rows:', eleves || []);
       console.log('Grades count:', notesMensuelles?.length || 0);
       
-      if (studentsReady && gradesReady) {
+      if (gradesReady && (studentsReady || hasNoGrades)) {
         // Validation finale de la synchronisation
         const studentIds = new Set(eleves.map(s => s.id));
         const gradeStudentIds = new Set(notesMensuelles.map(g => g.student_id).filter(Boolean));
@@ -57,8 +62,7 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
   const [matiereChoisie, setMatiereChoisie] = useState('');
   const [commentaires, setCommentaires] = useState({});
 
-  // Transformer les notes du format array (Dashboard) vers le format objet (BilanMensuel)
-  const notesParEleve = useMemo(() => {
+  const rapportsParEleve = useMemo(() => {
     console.log('=== DEBUG OBLIGATOIRE SYNCHRO FRONTEND ===');
     
     // Vérifier si students est chargé avant tout traitement
@@ -124,11 +128,12 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
         return; // Ignorer les notes avec student_id invalides
       }
       
-      if (!transformed[note.student_id]) {
-        transformed[note.student_id] = {};
-      }
-      
-      transformed[note.student_id][note.subject] = note.grade;
+      transformed[note.student_id] = buildStudentGradeReport({
+        eleveId: note.student_id,
+        notesMensuelles,
+        colonnesBoker,
+        colonnesFormation
+      });
     });
     
     console.log('3. Student_id dans grades:', Array.from(studentIdsInGrades));
@@ -136,7 +141,7 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
     console.log('5. Notes transformées (élèves valides seulement):', Object.keys(transformed));
     
     return transformed;
-  }, [notesMensuelles, eleves]);
+  }, [notesMensuelles, eleves, colonnesBoker, colonnesFormation]);
 
   // Charger et sauvegarder les commentaires
   useEffect(() => {
@@ -158,28 +163,6 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
     }));
   };
 
-  const calculerMoyenneMatiere = (grade) => {
-    if (grade === null || grade === undefined || grade === '' || isNaN(grade) || Number(grade) === 0) return null;
-    return Number(grade).toFixed(1);
-  };
-
-  const calculerMoyenneGroupe = (eleveNotes, groupeColonnes) => {
-    const valid = groupeColonnes
-      .map(c => calculerMoyenneMatiere(eleveNotes?.[c.id]))
-      .filter(n => n !== null && n !== undefined && !isNaN(n));
-    if (valid.length === 0) return null;
-    return (valid.reduce((a, b) => a + parseFloat(b), 0) / valid.length).toFixed(2);
-  };
-
-  const calculerMoyenneGenerale = (eleveNotes) => {
-    const toutes = [...colonnesBoker, ...colonnesFormation];
-    const valid = toutes
-      .map(c => calculerMoyenneMatiere(eleveNotes?.[c.id]))
-      .filter(n => n !== null && n !== undefined && !isNaN(n));
-    if (valid.length === 0) return null;
-    return (valid.reduce((a, b) => a + parseFloat(b), 0) / valid.length).toFixed(2);
-  };
-
   const getClasseMoyenne = (moyenne) => {
     if (moyenne === null) return '';
     if (moyenne < 50) return 'grade-red';
@@ -187,7 +170,31 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
     return 'grade-green';
   };
 
-  const updateNote = useCallback(async (eleveId, subject, value) => {
+  const getReportForEleve = (eleve) => rapportsParEleve[eleve.id] || buildStudentGradeReport({
+    eleveId: eleve.id,
+    notesMensuelles,
+    colonnesBoker,
+    colonnesFormation
+  });
+
+  const getWeeklyCellValue = (subjectReport, week) => {
+    const notes = subjectReport.notes || [];
+    const explicitWeeklyNotes = notes.filter(note => note.week === week);
+    const fallbackWeeklyNote = notes.every(note => note.week === null)
+      ? notes[week - 1]
+      : null;
+    const weeklyGrades = explicitWeeklyNotes.length > 0
+      ? explicitWeeklyNotes.map(note => note.gradeNumber)
+      : fallbackWeeklyNote
+        ? [fallbackWeeklyNote.gradeNumber]
+        : [];
+
+    if (weeklyGrades.length === 0) return '';
+    const weeklyAverage = weeklyGrades.reduce((sum, grade) => sum + grade, 0) / weeklyGrades.length;
+    return formatGrade(weeklyAverage);
+  };
+
+  const updateNote = useCallback(async (eleveId, subject, value, week = semaineActuelle) => {
     console.log('=== UPDATE NOTE BILAN MENSUEL ===');
     console.log('1. Élève ID demandé:', eleveId);
     console.log('2. Élèves disponibles:', eleves?.map(e => ({ id: e.id, name: `${e.firstName} ${e.lastName}` })) || []);
@@ -246,20 +253,20 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
       // Sauvegarder la note avec la nouvelle structure (MÊME LOGIQUE QUE DASHBOARD)
       await gradesService.upsert(userId, {
         student_id: eleveId,
-        subject: subject,
+        subject: getWeeklySubjectKey(subject, week),
         grade: noteValue
-      });
+      }, sessionContext);
       
       console.log(`Bilan Mensuel: Note ${noteValue} pour ${eleve.name || `${eleve.firstName} ${eleve.lastName}`}, ${subject}`);
       
       // Recharger les notes pour synchronisation (MÊME LOGIQUE QUE DASHBOARD)
-      const updatedNotes = await gradesService.getAll(userId);
+      const updatedNotes = await gradesService.getAll(userId, sessionContext);
       setNotesMensuelles(updatedNotes);
       
     } catch (error) {
       console.error('Erreur lors de la sauvegarde de la note (Bilan Mensuel):', error);
     }
-  }, [userId, eleves, setNotesMensuelles]);
+  }, [userId, eleves, setNotesMensuelles, semaineActuelle, sessionContext]);
 
   const supprimerEleve = (eleveId) => {
     if (!window.confirm('Voulez-vous vraiment supprimer cet élève ?')) return;
@@ -290,13 +297,20 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
     });
   };
 
-  const resetNotes = () => {
+  const resetNotes = async () => {
     if (!window.confirm(`Voulez-vous vraiment réinitialiser toutes les notes du bulletin mensuel ?\nCette action effacera toutes les notes N1, N2, N3, N4 pour tous les élèves.`)) return;
-    
-    setNotesMensuelles({});
+
+    try {
+      await gradesService.deleteAll(userId);
+      setNotesMensuelles([]);
+    } catch (error) {
+      console.error('Erreur lors de la réinitialisation des notes du bulletin mensuel:', error);
+      alert('Erreur lors de la réinitialisation des notes');
+    }
   };
 
   const thBase = { padding: '14px', textAlign: 'center', fontSize: '15px', fontWeight: 'bold', borderBottom: '2px solid var(--border-color)', whiteSpace: 'nowrap' };
+  const hasNoMonthlyNotes = Array.isArray(notesMensuelles) && notesMensuelles.length === 0;
 
   
   // Afficher l'écran de loading si les données ne sont pas synchronisées
@@ -338,6 +352,150 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
       </div>
     );
   }
+
+  if (hasNoMonthlyNotes) {
+    return (
+      <div style={{ 
+        backgroundColor: 'var(--bg-primary)', 
+        minHeight: '92vh',
+        width: '98vw',
+        maxWidth: 'none',
+        margin: '0',
+        padding: '24px 32px'
+      }}>
+        <header style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', padding: '0 1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '64px' }}>
+            <Button onClick={onBack} variant="secondary" size="medium">
+              ← Retour
+            </Button>
+            <h1 style={{ color: 'var(--text-primary)', fontSize: '1.4rem', fontWeight: 'bold', margin: 0 }}>Bulletin Mensuel</h1>
+            <div style={{ width: '90px' }} />
+          </div>
+        </header>
+
+        <main style={{ 
+          minHeight: 'calc(92vh - 112px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '2rem 1rem'
+        }}>
+          <div style={{
+            maxWidth: '620px',
+            width: '100%',
+            textAlign: 'center',
+            backgroundColor: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '18px',
+            padding: '3rem 2rem',
+            boxShadow: '0 18px 45px rgba(0, 0, 0, 0.12)'
+          }}>
+            <div style={{
+              width: '72px',
+              height: '72px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 1.5rem',
+              backgroundColor: 'var(--primary-light, rgba(251, 191, 36, 0.16))',
+              color: 'var(--primary-color, #f59e0b)',
+              fontSize: '2rem'
+            }}>
+              📝
+            </div>
+            <h2 style={{
+              color: 'var(--text-primary)',
+              fontSize: '1.8rem',
+              margin: '0 0 0.75rem',
+              fontWeight: '700'
+            }}>
+              Vous n'avez encore saisi aucune note.
+            </h2>
+            <p style={{
+              color: 'var(--text-secondary)',
+              fontSize: '1rem',
+              lineHeight: '1.6',
+              margin: '0 auto 2rem',
+              maxWidth: '480px'
+            }}>
+              Ajoutez des notes depuis le tableau de bord pour générer automatiquement le bilan mensuel.
+            </p>
+            <Button onClick={onBack} variant="premium" size="medium">
+              Retour au tableau de bord
+            </Button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const renderSectionTable = (title, subjectsKey, averageKey, headerColor, headerBg) => {
+    const firstReport = Array.isArray(eleves) && eleves.length > 0 ? getReportForEleve(eleves[0]) : null;
+    const subjects = firstReport?.[subjectsKey] || [];
+    const weekColumns = [1, 2, 3, 4];
+
+    return (
+      <section style={{ marginBottom: '2rem', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1rem' }}>
+        <h2 style={{ color: headerColor, margin: '0 0 1rem', fontSize: '1.25rem', fontWeight: 'bold' }}>{title}</h2>
+        <div style={{ overflowX: 'auto', width: '100%' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: `${Math.max(900, 180 + subjects.length * 5 * 90)}px` }}>
+            <thead>
+              <tr>
+                <th rowSpan={2} style={{ ...thBase, textAlign: 'left', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-header)', position: 'sticky', left: 0, zIndex: 4, minWidth: '160px', verticalAlign: 'middle' }}>Nom de l'élève</th>
+                {subjects.map(subjectReport => (
+                  <th key={subjectReport.id} colSpan={5} style={{ ...thBase, backgroundColor: headerBg, color: headerColor, minWidth: '400px' }}>{subjectReport.name}</th>
+                ))}
+                <th rowSpan={2} style={{ ...thBase, backgroundColor: headerColor, color: 'white', minWidth: '140px', verticalAlign: 'middle' }}>Moyenne générale</th>
+              </tr>
+              <tr>
+                {subjects.map(subjectReport => (
+                  <React.Fragment key={`${subjectReport.id}-notes-header`}>
+                    {weekColumns.map((week) => (
+                      <th key={`${subjectReport.id}-week-${week}`} style={{ ...thBase, backgroundColor: headerBg, color: headerColor, minWidth: '80px', fontSize: '11px' }}>N{week}</th>
+                    ))}
+                    <th key={`${subjectReport.id}-average`} style={{ ...thBase, backgroundColor: headerColor, color: 'white', minWidth: '90px', fontSize: '11px' }}>Moy.</th>
+                  </React.Fragment>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.isArray(eleves) && eleves.map((eleve, eleveIndex) => {
+                const rapport = getReportForEleve(eleve);
+                const rowSubjects = rapport[subjectsKey] || [];
+                const rowBg = eleveIndex % 2 === 0 ? backgroundWhite : backgroundAlternate;
+                return (
+                  <tr key={`${title}-${eleve.id}`} style={{ backgroundColor: rowBg }}>
+                    <td style={{ padding: '14px 18px', fontWeight: 'bold', color: textPrimary, backgroundColor: rowBg, position: 'sticky', left: 0, zIndex: 1, borderBottom: `1px solid ${border}`, whiteSpace: 'nowrap' }}>
+                      {eleve.firstName} {eleve.lastName}
+                    </td>
+                    {rowSubjects.map(subjectReport => (
+                      <React.Fragment key={`${eleve.id}-${subjectReport.id}`}>
+                        {weekColumns.map((week) => {
+                          const weeklyValue = getWeeklyCellValue(subjectReport, week);
+                          return (
+                          <td key={`${eleve.id}-${subjectReport.id}-week-${week}`} style={{ padding: '10px', textAlign: 'center', borderBottom: `1px solid ${border}` }}>
+                            <NoteInput value={weeklyValue} onChange={v => updateNote(eleve.id, subjectReport.id, v, week)} width="55px" />
+                          </td>
+                          );
+                        })}
+                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', backgroundColor: headerBg, borderBottom: `1px solid ${border}` }}>
+                          <span className={getClasseMoyenne(subjectReport.average)}>{subjectReport.average ?? '—'}</span>
+                        </td>
+                      </React.Fragment>
+                    ))}
+                    <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', backgroundColor: headerBg, borderBottom: `1px solid ${border}` }}>
+                      <span className={getClasseMoyenne(rapport[averageKey])}>{rapport[averageKey] ?? '—'}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
+  };
 
   return (
     <div style={{ 
@@ -394,141 +552,26 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
       )}
 
       <main style={{ padding: '1.5rem 1rem' }}>
-        <div style={{ overflowX: 'auto', width: '100%' }}>
-          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: '1200px' }}>
-            <thead>
-              {/* LIGNE 1 — Groupes */}
-              <tr>
-                <th rowSpan={3} style={{ ...thBase, textAlign: 'left', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-header)', position: 'sticky', left: 0, zIndex: 4, minWidth: '160px', verticalAlign: 'middle' }}>Nom de l'élève</th>
-                <th colSpan={colonnesBoker.length * 4} style={{ ...thBase, backgroundColor: '#e3f2fd', color: '#1976d2' }}>בוקר</th>
-                <th rowSpan={3} style={{ ...thBase, backgroundColor: '#1976d2', color: 'white', minWidth: '110px', verticalAlign: 'middle' }}>Moy. בוקר</th>
-                <th colSpan={colonnesFormation.length * 4} style={{ ...thBase, backgroundColor: '#fff3e0', color: '#e65100' }}>Formation Professionnelle</th>
-                <th rowSpan={3} style={{ ...thBase, backgroundColor: '#e65100', color: 'white', minWidth: '110px', verticalAlign: 'middle' }}>Moy. Formation</th>
-                <th rowSpan={3} style={{ ...thBase, backgroundColor: '#424242', color: 'white', minWidth: '130px', verticalAlign: 'middle' }}>Moyenne Générale</th>
-                <th rowSpan={3} style={{ ...thBase, backgroundColor: 'var(--bg-secondary)', color: 'var(--text-header)', position: 'sticky', right: 0, zIndex: 4, minWidth: '120px', verticalAlign: 'middle' }}>Actions</th>
-              </tr>
-              
-              {/* LIGNE 2 — Matières */}
-              <tr>
-                {Array.isArray(colonnesBoker) && colonnesBoker.map(col => (
-                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: '#f0f8ff', color: '#1976d2', direction: 'rtl' }}>{col.nom}</th>
-                ))}
-                {Array.isArray(colonnesFormation) && colonnesFormation.map(col => (
-                  <th key={col.id} colSpan={4} style={{ ...thBase, backgroundColor: '#fffaf0', color: '#e65100' }}>{col.nom}</th>
-                ))}
-              </tr>
-              
-              {/* LIGNE 3 — Notes de la semaine active */}
-              <tr>
-                {Array.isArray(colonnesBoker) && colonnesBoker.map(col => (
-                  <React.Fragment key={col.id}>
-                    {[1, 2, 3, 4].map(noteNum => (
-                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: '#f0f8ff', color: '#1976d2', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
-                    ))}
-                  </React.Fragment>
-                ))}
-                {Array.isArray(colonnesFormation) && colonnesFormation.map(col => (
-                  <React.Fragment key={col.id}>
-                    {[1, 2, 3, 4].map(noteNum => (
-                      <th key={`${col.id}_note${noteNum}`} style={{ ...thBase, backgroundColor: '#fffaf0', color: '#e65100', fontSize: '10px', minWidth: '60px' }}>N{noteNum}</th>
-                    ))}
-                  </React.Fragment>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.isArray(eleves) && eleves.map((eleve, i) => {
-                // Utiliser les notes transformées depuis le format Dashboard
-                const eleveNotes = notesParEleve[eleve.id] || {};
-                const moyBoker = calculerMoyenneGroupe(eleveNotes, colonnesBoker);
-                const moyFormation = calculerMoyenneGroupe(eleveNotes, colonnesFormation);
-                const moyGenerale = calculerMoyenneGenerale(eleveNotes);
-                const rowBg = i % 2 === 0 ? backgroundWhite : backgroundAlternate;
-                return (
-                  <tr key={eleve.id} style={{ backgroundColor: rowBg }}>
-                    <td style={{ 
-                      padding: '14px 18px', 
-                      fontWeight: 'bold', 
-                      color: textPrimary, 
-                      backgroundColor: i % 2 === 0 ? backgroundAlternate : backgroundWhite, 
-                      position: 'sticky', 
-                      left: 0, 
-                      zIndex: 1, 
-                      borderBottom: `1px solid ${border}`, 
-                      whiteSpace: 'nowrap', 
-                      fontSize: '15px' 
-                    }}>
-                      {eleve.firstName} {eleve.lastName}
-                    </td>
-                    {Array.isArray(colonnesBoker) && colonnesBoker.map(col => (
-                      <React.Fragment key={col.id}>
-                        <td key={`${col.id}_grade`} style={{ 
-                          padding: '10px', 
-                          textAlign: 'center', 
-                          borderBottom: `1px solid ${border}` 
-                        }}>
-                          <NoteInput 
-                            key={`${eleve.id}-${col.id}`}
-                            value={eleveNotes?.[col.id] ?? ''}
-                            onChange={v => updateNote(eleve.id, col.id, v)}
-                            width="55px"
-                          />
-                        </td>
-                      </React.Fragment>
-                    ))}
-                    <td style={{ 
-                      padding: '10px', 
-                      textAlign: 'center', 
-                      fontWeight: 'bold', 
-                      backgroundColor: primaryLight, 
-                      borderBottom: `1px solid ${border}` 
-                    }}>
-                      <span className={getClasseMoyenne(moyBoker)}>{moyBoker ?? '—'}</span>
-                    </td>
-                    {Array.isArray(colonnesFormation) && colonnesFormation.map(col => (
-                      <React.Fragment key={col.id}>
-                        <td key={`${col.id}_grade`} style={{ 
-                          padding: '10px', 
-                          textAlign: 'center', 
-                          borderBottom: `1px solid ${border}` 
-                        }}>
-                          <NoteInput 
-                            key={`${eleve.id}-${col.id}`}
-                            value={eleveNotes?.[col.id] ?? ''}
-                            onChange={v => updateNote(eleve.id, col.id, v)}
-                            width="55px"
-                          />
-                        </td>
-                      </React.Fragment>
-                    ))}
-                    <td style={{ 
-                      padding: '10px', 
-                      textAlign: 'center', 
-                      fontWeight: 'bold', 
-                      backgroundColor: success, 
-                      borderBottom: `1px solid ${border}` 
-                    }}>
-                      <span className={getClasseMoyenne(moyFormation)}>{moyFormation ?? '—'}</span>
-                    </td>
-                    <td style={{ 
-                      padding: '10px', 
-                      textAlign: 'center', 
-                      fontWeight: 'bold', 
-                      backgroundColor: backgroundAlternate, 
-                      borderBottom: `1px solid ${border}` 
-                    }}>
-                      <span className={getClasseMoyenne(moyGenerale)}>{moyGenerale ?? '—'}</span>
-                    </td>
-                    <td style={{ padding: '10px 16px', textAlign: 'center', position: 'sticky', right: 0, zIndex: 1, backgroundColor: rowBg, borderBottom: '1px solid var(--border-color)' }}>
-                      <Button onClick={() => supprimerEleve(eleve.id)} variant="premium" size="small" style={{ backgroundColor: '#ef4444' }}>🗑 Supprimer</Button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        {renderSectionTable('SECTION BOKER', 'bokerSubjects', 'bokerAverage', '#1976d2', '#e3f2fd')}
+        {renderSectionTable('SECTION FORMATION PROFESSIONNELLE', 'formationSubjects', 'formationAverage', '#e65100', '#fff3e0')}
 
-          {/* Section Commentaires Professeur */}
+        <section style={{ marginTop: '2rem', marginBottom: '2rem', padding: '1.5rem', backgroundColor: 'var(--bg-secondary)', border: '2px solid var(--border-color)', borderRadius: '14px' }}>
+          <h2 style={{ color: 'var(--text-primary)', margin: '0 0 1rem', fontSize: '1.25rem', fontWeight: 'bold' }}>RÉCAPITULATIF GLOBAL</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
+            {Array.isArray(eleves) && eleves.map((eleve) => {
+              const rapport = getReportForEleve(eleve);
+              return (
+                <div key={`global-${eleve.id}`} style={{ padding: '1rem', borderRadius: '10px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}>
+                  <div style={{ color: textPrimary, fontWeight: 'bold', marginBottom: '0.75rem' }}>{eleve.firstName} {eleve.lastName}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}><span>Moyenne Boker</span><strong>{rapport.bokerAverage ?? '—'}</strong></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}><span>Moyenne Formation</span><strong>{rapport.formationAverage ?? '—'}</strong></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: textPrimary, fontSize: '1.1rem', fontWeight: 'bold', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}><span>Moyenne Générale Totale</span><span className={getClasseMoyenne(rapport.totalAverage)}>{rapport.totalAverage ?? '—'}</span></div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
           <div style={{ marginTop: '2rem', padding: '1.5rem', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
             <h3 style={{ color: 'var(--text-primary)', marginBottom: '1rem', fontSize: '18px', fontWeight: 'bold' }}>
               📝 Commentaires du professeur
@@ -579,7 +622,6 @@ function BilanMensuel({ onBack, theme: propTheme, eleves, setEleves, colonnesBok
               ))}
             </div>
           </div>
-        </div>
       </main>
     </div>
   );

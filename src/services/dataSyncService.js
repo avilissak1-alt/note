@@ -5,13 +5,13 @@ import { studentsService, gradesService } from './supabaseService.js';
 
 export const dataSyncService = {
   // Nettoyer les grades orphelins (student_id sans student correspondant)
-  async cleanupOrphanedGrades(userId) {
+  async cleanupOrphanedGrades(userId, sessionContext = null) {
     console.log('=== NETTOYAGE GRADES ORPHELINS ===');
     
     try {
       // Récupérer tous les students et grades
-      const students = await studentsService.getAll(userId);
-      const grades = await gradesService.getAll(userId);
+      const students = await studentsService.getAll(userId, sessionContext);
+      const grades = await gradesService.getAll(userId, sessionContext);
       
       console.log('1. Students chargés:', students.length);
       console.log('2. Grades chargés:', grades.length);
@@ -30,7 +30,9 @@ export const dataSyncService = {
         // Supprimer les grades orphelins
         for (const orphanedGrade of orphanedGrades) {
           try {
-            await gradesService.delete(userId, orphanedGrade.student_id, orphanedGrade.subject);
+            if (sessionContext?.role !== 'teacher') {
+              await gradesService.delete(userId, orphanedGrade.student_id, orphanedGrade.subject);
+            }
             console.log('   - Grade orphelin supprimé:', {
               student_id: orphanedGrade.student_id,
               subject: orphanedGrade.subject
@@ -59,16 +61,16 @@ export const dataSyncService = {
   },
 
   // Synchronisation complète des données (students + grades)
-  async syncAllData(userId) {
+  async syncAllData(userId, sessionContext = null) {
     console.log('=== SYNCHRONISATION COMPLÈTE DES DONNÉES ===');
     
     try {
       // Étape 1: Nettoyer les grades orphelins
-      const cleanupResult = await this.cleanupOrphanedGrades(userId);
+      const cleanupResult = await this.cleanupOrphanedGrades(userId, sessionContext);
       
       // Étape 2: Récupérer les données propres
-      const students = await studentsService.getAll(userId);
-      const grades = await gradesService.getAll(userId);
+      const students = await studentsService.getAll(userId, sessionContext);
+      const grades = await gradesService.getAll(userId, sessionContext);
       
       // Étape 3: Validation finale
       const studentIds = new Set(students.map(s => s.id));
@@ -104,12 +106,12 @@ export const dataSyncService = {
   },
 
   // Validation de la cohérence des données
-  async validateDataConsistency(userId) {
+  async validateDataConsistency(userId, sessionContext = null) {
     console.log('=== VALIDATION COHÉRENCE DONNÉES ===');
     
     try {
-      const students = await studentsService.getAll(userId);
-      const grades = await gradesService.getAll(userId);
+      const students = await studentsService.getAll(userId, sessionContext);
+      const grades = await gradesService.getAll(userId, sessionContext);
       
       const studentIds = new Set(students.map(s => s.id));
       const gradeStudentIds = new Set(grades.map(g => g.student_id).filter(Boolean));

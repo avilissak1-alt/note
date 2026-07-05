@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { dataSyncService } from '../services/dataSyncService.js';
 
-export const useDataSync = (userId) => {
+export const useDataSync = (userId, sessionContext = null) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('idle');
   const [lastSync, setLastSync] = useState(null);
@@ -19,8 +19,8 @@ export const useDataSync = (userId) => {
     try {
       console.log('🔄 SYNCHRONISATION AUTOMATIQUE DES DONNÉES...');
       
-      const result = await dataSyncService.syncAllData(userId);
-      const validation = await dataSyncService.validateDataConsistency(userId);
+      const result = await dataSyncService.syncAllData(userId, sessionContext);
+      const validation = await dataSyncService.validateDataConsistency(userId, sessionContext);
       
       setSyncStatus(validation.isConsistent ? 'success' : 'warning');
       setLastSync(new Date());
@@ -46,7 +46,7 @@ export const useDataSync = (userId) => {
     } finally {
       setIsSyncing(false);
     }
-  }, [userId]);
+  }, [userId, sessionContext]);
 
   // Synchronisation après ajout d'élève
   const syncAfterStudentAdd = useCallback(async () => {
@@ -71,7 +71,7 @@ export const useDataSync = (userId) => {
     if (!userId) return null;
     
     try {
-      const validation = await dataSyncService.validateDataConsistency(userId);
+      const validation = await dataSyncService.validateDataConsistency(userId, sessionContext);
       setSyncStatus(validation.isConsistent ? 'success' : 'warning');
       return validation;
     } catch (error) {
@@ -79,7 +79,7 @@ export const useDataSync = (userId) => {
       setSyncStatus('error');
       return null;
     }
-  }, [userId]);
+  }, [userId, sessionContext]);
 
   // Auto-synchronisation périodique (optionnel)
   useEffect(() => {

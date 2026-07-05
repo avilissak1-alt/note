@@ -1,21 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import AuthPage from './pages/AuthPage.jsx';
-import Dashboard from './pages/Dashboard.jsx';
+import DirectorDashboard from './pages/DirectorDashboard.jsx';
+import TeacherDashboard from './pages/TeacherDashboard.jsx';
+import TeachersManagementPage from './pages/TeachersManagementPage.jsx';
+import RoleSelection from './pages/RoleSelection.jsx';
 import BilanMensuel from './components/charts/BilanMensuel.jsx';
 import BilanTrimestriel from './components/charts/BilanTrimestriel.jsx';
 import EleveSelectionPage from './components/ui/EleveSelectionPage.jsx';
 import EleveAnalysePage from './pages/EleveAnalysePage.jsx';
 import ProfesseurPage from './pages/ProfesseurPage.jsx';
+import ProfilPage from './pages/ProfilPage.jsx';
 import BandeauSemaine from './components/ui/BandeauSemaine.jsx';
-import { studentsService, gradesService } from './services/supabaseService.js';
-import { dataSyncService } from './services/dataSyncService.js';
 import { atomicSyncService } from './services/atomicSyncService.js';
+import { multiSchoolService } from './services/multiSchoolService.js';
 import './index.css';
 
 function AppContent() {
   const { user, loading, signOut, initialized } = useAuth();
-  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [currentPage, setCurrentPage] = useState('role-selection');
+  const [role, setRole] = useState(null);
+  const [expectedRole, setExpectedRole] = useState(null);
+  const [sessionContext, setSessionContext] = useState(null);
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('theme') || 'dark'
   });
@@ -41,19 +47,51 @@ function AppContent() {
 
   // Gestion robuste de la session
   useEffect(() => {
+    console.log('=== APP AUTH EFFECT ===');
+    console.log('initialized:', initialized);
+    console.log('loading:', loading);
+    console.log('user présent:', !!user);
+    console.log('user id:', user?.id || null);
+    console.log('currentPage au moment auth effect:', currentPage);
     if (initialized && !loading) {
       setIsInitialized(true);
       
       // Redirection automatique selon l'état de l'utilisateur
       if (user) {
-        // Utilisateur connecté : charger ses données
-        loadUserData();
-        setCurrentPage('dashboard');
+        const initializeSession = async () => {
+          try {
+            const selectedRole = expectedRole || localStorage.getItem(`activeRole_${user.id}`);
+
+            if (!selectedRole) {
+              setRole(null);
+              setSessionContext(null);
+              setCurrentPage('role-selection');
+              return;
+            }
+
+            const nextSessionContext = await multiSchoolService.buildSessionContext(user.id, selectedRole);
+            setRole(nextSessionContext.role);
+            setSessionContext(nextSessionContext);
+            localStorage.setItem(`activeRole_${user.id}`, nextSessionContext.role);
+            setCurrentPage('dashboard');
+            await loadUserData(nextSessionContext);
+          } catch (error) {
+            console.error('Erreur initialisation contexte multi-écoles:', error);
+            setRole(null);
+            setSessionContext(null);
+            localStorage.removeItem(`activeRole_${user.id}`);
+            await signOut();
+          }
+        };
+
+        initializeSession();
       } else {
-        // Utilisateur non connecté : réinitialiser et rediriger vers login
+        console.log('APP AUTH EFFECT sans user: setEleves([])');
         setEleves([]);
-        setNotesMensuelles({});
-        setCurrentPage('auth');
+        setNotesMensuelles([]);
+        setRole(null);
+        setSessionContext(null);
+        setCurrentPage(expectedRole ? 'auth' : 'role-selection');
       }
     }
   }, [user, loading, initialized]);
@@ -72,7 +110,7 @@ function AppContent() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [user]);
 
-  const loadUserData = async () => {
+  const loadUserData = async (nextSessionContext = sessionContext) => {
     if (!user) return;
     
     setDataLoading(true);
@@ -84,15 +122,18 @@ function AppContent() {
       console.log('   - Timestamp début sync:', new Date().toISOString());
       console.log('   - User ID:', user.id);
       
-      const atomicResult = await atomicSyncService.syncAtomicData(user.id);
+      const atomicResult = await atomicSyncService.syncAtomicData(user.id, nextSessionContext);
       
       console.log('   - Timestamp fin sync:', new Date().toISOString());
       console.log('   - Students retournés:', atomicResult.students?.length || 0);
+      console.log('   - IDs students retournés:', atomicResult.students?.map(student => student.id) || []);
       console.log('   - Grades retournés:', atomicResult.grades?.length || 0);
       
       // Mise à jour des states React avec les données atomiquement synchronisées
       console.log('2. Mise à jour des states React avec données cohérentes...');
       console.log('   - AVANT setEleves - eleves actuels:', eleves?.length || 0);
+      console.log('   - setEleves va recevoir length:', atomicResult.students?.length || 0);
+      console.log('   - setEleves va recevoir ids:', atomicResult.students?.map(student => student.id) || []);
       
       setEleves(atomicResult.students);
       
@@ -117,7 +158,7 @@ function AppContent() {
       }
       
       // Synchroniser les élèves locaux avec les données propres
-      const localEleves = localStorage.getItem(`eleves_${user.id}`);
+      const localEleves = null;
       
       if (localEleves) {
         const parsedLocalEleves = JSON.parse(localEleves);
@@ -129,6 +170,8 @@ function AppContent() {
             mergedEleves.push(localEleve);
           }
         });
+        console.log('4. setEleves fusion localStorage va recevoir length:', mergedEleves.length);
+        console.log('4. setEleves fusion localStorage va recevoir ids:', mergedEleves.map(student => student.id));
         setEleves(mergedEleves);
         console.log('4. Élèves locaux fusionnés:', mergedEleves.length);
       }
@@ -203,7 +246,57 @@ function AppContent() {
 
   // Redirection automatique vers AuthPage si non connecté
   if (!user) {
-    return <AuthPage />;
+    if (!expectedRole) {
+      return (
+        <RoleSelection
+          user={null}
+          onSelectRole={(nextRole) => {
+            setExpectedRole(nextRole);
+            setCurrentPage('auth');
+          }}
+          onLogout={() => {}}
+        />
+      );
+    }
+
+    return <AuthPage expectedRole={expectedRole} onBack={() => setExpectedRole(null)} />;
+  }
+
+  const selectRole = async (nextRole) => {
+    try {
+      const nextSessionContext = await multiSchoolService.buildSessionContext(user.id, nextRole);
+      setRole(nextSessionContext.role);
+      setExpectedRole(nextSessionContext.role);
+      setSessionContext(nextSessionContext);
+      localStorage.setItem(`activeRole_${user.id}`, nextSessionContext.role);
+      setCurrentPage('dashboard');
+      await loadUserData(nextSessionContext);
+    } catch (error) {
+      console.error('Rôle non autorisé:', error);
+      alert(error.message || 'Rôle non autorisé');
+    }
+  };
+
+  const clearRole = () => {
+    setRole(null);
+    setExpectedRole(null);
+    setSessionContext(null);
+    localStorage.removeItem(`activeRole_${user.id}`);
+    setCurrentPage('role-selection');
+  };
+
+  if (currentPage === 'role-selection' || !role) {
+    return (
+      <RoleSelection
+        user={user}
+        onSelectRole={selectRole}
+        onLogout={async () => {
+          setExpectedRole(null);
+          setSessionContext(null);
+          await signOut();
+        }}
+      />
+    );
   }
 
   // Wrapper pour les pages avec bandeau
@@ -213,12 +306,29 @@ function AppContent() {
         theme={theme}
         semaineActuelle={semaineActuelle}
         setSemaineActuelle={setSemaineActuelle}
+        onMensuel={() => setCurrentPage('mensuel')}
+        onTrimestriel={() => setCurrentPage('trimestriel')}
+        onInspectEleve={() => setCurrentPage('inspect-eleve-selection')}
+        onProfil={() => setCurrentPage('profil')}
+        onTeachers={() => setCurrentPage('teachers-management')}
+        onToggleTheme={toggleTheme}
+        onLogout={async () => {
+          setExpectedRole(null);
+          setSessionContext(null);
+          await signOut();
+        }}
+        user={user}
       />
       {children}
     </div>
   );
 
   if (currentPage === 'mensuel') {
+    console.log('=== APP RENDER BILAN MENSUEL ===');
+    console.log('App render mensuel eleves length:', eleves?.length || 0);
+    console.log('App render mensuel eleves ids:', eleves?.map(eleve => eleve.id) || []);
+    console.log('App render mensuel notesMensuelles length:', notesMensuelles?.length || 0);
+    console.log('App render mensuel user id:', user?.id || null);
     return (
       <PageAvecBandeau>
         <BilanMensuel 
@@ -234,6 +344,7 @@ function AppContent() {
           setNotesMensuelles={setNotesMensuelles}
           semaineActuelle={semaineActuelle}
           userId={user.id}
+          sessionContext={sessionContext}
         />  
       </PageAvecBandeau>
     );
@@ -251,6 +362,7 @@ function AppContent() {
           setColonnesBoker={setColonnesBoker}
           colonnesFormation={colonnesFormation}
           setColonnesFormation={setColonnesFormation}
+          notesMensuelles={notesMensuelles}
         />
       </PageAvecBandeau>
     );
@@ -288,23 +400,84 @@ function AppContent() {
     );
   }
 
+  if (currentPage === 'teachers-management') {
+    return (
+      <TeachersManagementPage
+        onBack={() => setCurrentPage('dashboard')}
+        sessionContext={sessionContext}
+        colonnesBoker={colonnesBoker}
+        colonnesFormation={colonnesFormation}
+      />
+    );
+  }
+
   if (currentPage === 'professeur') {
     return (
       <ProfesseurPage 
         user={user}
-        onLogout={signOut}
+        onLogout={async () => {
+          setExpectedRole(null);
+          setSessionContext(null);
+          await signOut();
+        }}
         onBack={() => setCurrentPage('dashboard')}
       />
     );
   }
 
-  // Page par défaut : Dashboard
+  if (currentPage === 'profil') {
+    return (
+      <ProfilPage
+        user={user}
+        onLogout={async () => {
+          setExpectedRole(null);
+          setSessionContext(null);
+          await signOut();
+        }}
+        onBack={() => setCurrentPage('dashboard')}
+        onTeachers={() => setCurrentPage('teachers-management')}
+      />
+    );
+  }
+
+  if (role === 'teacher') {
+    return (
+      <TeacherDashboard
+        user={user}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onLogout={async () => {
+          setExpectedRole(null);
+          setSessionContext(null);
+          await signOut();
+        }}
+        onBackToRoles={clearRole}
+        eleves={eleves}
+        colonnesBoker={colonnesBoker}
+        colonnesFormation={colonnesFormation}
+        notesMensuelles={notesMensuelles}
+        setNotesMensuelles={setNotesMensuelles}
+        semaineActuelle={semaineActuelle}
+        setSemaineActuelle={setSemaineActuelle}
+        userId={user.id}
+        sessionContext={sessionContext}
+      />
+    );
+  }
+
+  // Page par défaut : Dashboard Directeur
   return (
-    <Dashboard 
+    <DirectorDashboard 
       onMensuel={() => setCurrentPage('mensuel')} 
       onTrimestriel={() => setCurrentPage('trimestriel')}
-      onInspectEleve={(page) => setCurrentPage(page)}
-      onLogout={signOut}
+      onInspectEleve={() => setCurrentPage('inspect-eleve-selection')}
+      onProfil={() => setCurrentPage('profil')}
+      onTeachers={() => setCurrentPage('teachers-management')}
+      onLogout={async () => {
+        setExpectedRole(null);
+        setSessionContext(null);
+        await signOut();
+      }}
       theme={theme}
       onToggleTheme={toggleTheme}
       eleves={eleves}
@@ -319,6 +492,7 @@ function AppContent() {
       setSemaineActuelle={setSemaineActuelle}
       userId={user.id}
       user={user}
+      sessionContext={sessionContext}
     />
   );
 }

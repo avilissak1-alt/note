@@ -5,10 +5,11 @@ import BandeauSemaine from '../components/ui/BandeauSemaine.jsx';
 import Button from '../components/ui/Button.jsx';
 import { studentsService, gradesService } from '../services/supabaseService.js';
 import { useDataSync } from '../hooks/useDataSync.js';
+import { getBaseSubjectKey, getWeeklySubjectKey } from '../utils/gradeAnalysis.js';
 
 const initialEleves = [];
 
-function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, onToggleTheme, eleves, setEleves, colonnesBoker, setColonnesBoker, colonnesFormation, setColonnesFormation, notesMensuelles, setNotesMensuelles, semaineActuelle, setSemaineActuelle, selectedEleve, setSelectedEleve, userId, user }) {
+function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onProfil, onTeachers, onLogout, theme, onToggleTheme, eleves, setEleves, colonnesBoker, setColonnesBoker, colonnesFormation, setColonnesFormation, notesMensuelles, setNotesMensuelles, semaineActuelle, setSemaineActuelle, selectedEleve, setSelectedEleve, userId, user, sessionContext }) {
   // LOGGING DES PROPS AU CHARGEMENT DU COMPOSANT
   console.log('=== DASHBOARD COMPOSANT CHARGÉ ===');
   console.log('1. PROPS REÇUES:');
@@ -21,15 +22,6 @@ function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, 
   if (eleves && Array.isArray(eleves)) {
     console.log('   - Nombre d\'élèves:', eleves.length);
     console.log('   - 5 premiers IDs:', eleves.slice(0, 5).map(e => e.id));
-    
-    // Vérifier si l'ID problématique est dans les props
-    const problematicIdInProps = eleves.some(e => e.id === '588b1c6f-d386-4250-a51e-7d0c981d6c3d');
-    console.log('   - ID 588b1c6f-d386-4250-a51e-7d0c981d6c3d dans props:', problematicIdInProps ? '✅ OUI' : '❌ NON');
-    
-    if (problematicIdInProps) {
-      const problematicStudent = eleves.find(e => e.id === '588b1c6f-d386-4250-a51e-7d0c981d6c3d');
-      console.log('   - Élève problématique dans props:', problematicStudent);
-    }
   } else {
     console.log('   - eleves invalide:', typeof eleves);
   }
@@ -43,7 +35,7 @@ function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, 
   const [expandedEleves, setExpandedEleves] = useState(new Set());
   
   // Hook de synchronisation des données
-  const { syncAfterStudentAdd, syncAfterStudentDelete, syncAfterGradeUpdate, syncStatus } = useDataSync(userId);
+  const { syncAfterStudentAdd, syncAfterStudentDelete, syncAfterGradeUpdate, syncStatus } = useDataSync(userId, sessionContext);
   
   // Refs pour préserver la position de scroll et éviter les re-renders
   const semaineRef = useRef(semaineActuelle);
@@ -62,46 +54,19 @@ function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, 
     console.log('1. User ID:', userId);
     console.log('2. Élèves chargés:', eleves?.length || 0);
     console.log('3. Students IDs:', eleves?.map(s => s.id) || []);
-    
-    // Vérifier si l'ID problématique est présent au chargement
-    if (eleves && Array.isArray(eleves)) {
-      const hasProblematicId = eleves.some(e => e.id === '588b1c6f-d386-4250-a51e-7d0c981d6c3d');
-      console.log('4. ID problématique au chargement:', hasProblematicId ? '✅ PRÉSENT' : '❌ ABSENT');
-      
-      if (!hasProblematicId) {
-        console.log('⚠️ L\'ID PROBLÉMATIQUE N\'EST PAS DANS LES PROPS AU CHARGEMENT!');
-        console.log('   - Ceci explique l\'erreur "Élève non trouvé"');
-        console.log('   - L\'ID existe dans la base mais pas dans les props React');
-      }
-    }
-    
+
     // Stocker l'état initial pour comparaison
     if (typeof window !== 'undefined') {
       window.initialDashboardState = {
         timestamp: new Date().toISOString(),
         userId: userId,
         elevesLength: eleves?.length || 0,
-        elevesIds: eleves?.map(e => e.id) || [],
-        hasProblematicId: eleves?.some(e => e.id === '588b1c6f-d386-4250-a51e-7d0c981d6c3d') || false
+        elevesIds: eleves?.map(e => e.id) || []
       };
     }
     console.log('4. Notes chargées:', notesMensuelles?.length || 0);
     console.log('5. Grades student_ids:', (Array.isArray(notesMensuelles) ? notesMensuelles : []).map(g => g.student_id) || []);
-    
-    // Vérifier l'ID problématique spécifique
-    const problematicId = '588b1c6f-d386-4250-a51e-7d0c981d6c3d';
-    const studentExists = eleves?.some(e => e.id === problematicId);
-    const gradeExists = notesMensuelles?.some(g => g.student_id === problematicId);
-    
-    console.log('6. ID problématique (588b1c6f-d386-4250-a51e-7d0c981d6c3d):');
-    console.log('   - Existe dans students:', studentExists);
-    console.log('   - Existe dans grades:', gradeExists);
-    
-    if (gradeExists && !studentExists) {
-      console.error('❌ GRADE ORPHELIN DÉTECTÉ:', problematicId);
-      console.log('   Ce grade va causer des erreurs de calcul');
-    }
-    
+
     // Vérifier tous les orphelins
     const studentIds = new Set(eleves?.map(s => s.id) || []);
     const gradeStudentIds = new Set((Array.isArray(notesMensuelles) ? notesMensuelles : []).map(g => g.student_id).filter(Boolean) || []);
@@ -181,7 +146,6 @@ function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, 
   // Les élèves sont maintenant chargés depuis App.jsx via loadUserData()
 
   const calculerMoyenneGroupe = (eleveId, groupeColonnes) => {
-  // DEBUG RAPIDE - Vérifier le problème ID 588b1c6f-d386-4250-a51e-7d0c981d6c3d
   console.log('=== DEBUG MOYENNE GROUPE ===');
   console.log('1. Élève ID demandé:', eleveId);
   console.log('2. Students disponibles:', eleves?.map(s => ({ id: s.id, name: `${s.firstName} ${s.lastName}` })) || []);
@@ -322,7 +286,7 @@ function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, 
   
   const valid = groupeColonnes
     .flatMap(c => (Array.isArray(notesMensuelles) ? notesMensuelles : [])
-      .filter(n => n.student_id === eleveId && n.subject === c.id)
+      .filter(n => n.student_id === eleveId && getBaseSubjectKey(n.subject) === c.id)
       .map(n => n.grade)
     )
     .filter(n => n !== null && n !== undefined && !isNaN(n) && Number(n) !== 0);
@@ -334,7 +298,6 @@ function Dashboard({ onMensuel, onTrimestriel, onInspectEleve, onLogout, theme, 
 };
 
 const calculerMoyenneGenerale = (eleveId) => {
-  // DEBUG RAPIDE - Vérifier le problème ID 588b1c6f-d386-4250-a51e-7d0c981d6c3d
   console.log('=== DEBUG MOYENNE GÉNÉRALE ===');
   console.log('1. Élève ID demandé:', eleveId);
   console.log('2. Students disponibles:', eleves?.map(s => ({ id: s.id, name: `${s.firstName} ${s.lastName}` })) || []);
@@ -460,7 +423,7 @@ const calculerMoyenneGenerale = (eleveId) => {
   const toutes = [...colonnesBoker, ...colonnesFormation];
   const valid = toutes
     .flatMap(c => (Array.isArray(notesMensuelles) ? notesMensuelles : [])
-      .filter(n => n.student_id === eleveId && n.subject === c.id)
+      .filter(n => n.student_id === eleveId && getBaseSubjectKey(n.subject) === c.id)
       .map(n => n.grade)
     )
     .filter(n => n !== null && n !== undefined && !isNaN(n) && Number(n) !== 0);
@@ -515,20 +478,20 @@ const calculerMoyenneGenerale = (eleveId) => {
       // Sauvegarder la note avec la nouvelle structure
       await gradesService.upsert(userId, {
         student_id: eleveId,
-        subject: subject,
+        subject: getWeeklySubjectKey(subject, semaineActuelle),
         grade: noteValue
-      });
+      }, sessionContext);
       
       console.log(`Note sauvegardée: ${noteValue} pour ${eleve.name}, ${subject}`);
       
       // Recharger les notes pour synchronisation
-      const updatedNotes = await gradesService.getAll(userId);
+      const updatedNotes = await gradesService.getAll(userId, sessionContext);
       setNotesMensuelles(updatedNotes);
       
     } catch (error) {
       console.error('Erreur lors de la sauvegarde de la note:', error);
     }
-  }, [userId, eleves, setNotesMensuelles]);
+  }, [userId, eleves, setNotesMensuelles, semaineActuelle, sessionContext]);
 
   // Composant pour afficher une matière avec sa note
   const MatiereRow = memo(({ eleveId, subject, onUpdateNote, onDeleteControle }) => {
@@ -537,7 +500,7 @@ const calculerMoyenneGenerale = (eleveId) => {
     
     // Récupérer les notes pour cette matière et cet élève
     const subjectNotes = safeNotes.filter(note => 
-      note.student_id === eleveId && note.subject === subject
+      note.student_id === eleveId && note.subject === getWeeklySubjectKey(subject, semaineActuelle)
     );
     
     const gradeEntry = subjectNotes[0] || null;
@@ -764,7 +727,7 @@ EleveRow.displayName = 'EleveRow';
         console.log('7. Création dans Supabase en cours...');
         
         // Créer l'élève dans Supabase
-        const newStudent = await studentsService.create(userId, studentData);
+        const newStudent = await studentsService.create(userId, studentData, sessionContext);
         console.log('8. ÉLÈVE CRÉÉ DANS SUPABASE:', newStudent);
         console.log('   - newStudent.id:', newStudent?.id);
         console.log('   - newStudent.name:', newStudent?.name);
@@ -852,7 +815,7 @@ EleveRow.displayName = 'EleveRow';
         } catch (syncError) {
           console.error('❌ Erreur synchronisation après création:', syncError);
           // En cas d'erreur de sync, recharger manuellement
-          const refreshedStudents = await studentsService.getAll(userId);
+          const refreshedStudents = await studentsService.getAll(userId, sessionContext);
           const formattedStudents = refreshedStudents.map(student => {
             const nameParts = student.name ? student.name.split(' ') : ['', ''];
             return {
@@ -871,7 +834,7 @@ EleveRow.displayName = 'EleveRow';
         // En cas d'erreur, recharger les élèves pour corriger l'état
         console.log('🔄 RECHARGEMENT DES ÉLÈVES APRÈS ERREUR...');
         const { studentsService } = await import('../services/supabaseService.js');
-        const data = await studentsService.getAll(userId);
+        const data = await studentsService.getAll(userId, sessionContext);
         setEleves(data || []);
         
         alert(`Erreur lors de l'ajout de l'élève: ${error.message}`);
@@ -936,9 +899,15 @@ EleveRow.displayName = 'EleveRow';
     else setColonnesFormation(prev => prev.filter(c => c.id !== colonneId));
   };
 
-  const reinitialiserToutesNotes = () => {
-    if (window.confirm('Réinitialiser toutes les notes ?')) {
+  const reinitialiserToutesNotes = async () => {
+    if (!window.confirm('Réinitialiser toutes les notes ?')) return;
+
+    try {
+      await gradesService.deleteAll(userId);
       setNotesMensuelles([]);
+    } catch (error) {
+      console.error('Erreur lors de la réinitialisation des notes:', error);
+      alert('Erreur lors de la réinitialisation des notes');
     }
   };
 
@@ -980,7 +949,7 @@ EleveRow.displayName = 'EleveRow';
       // Calculer les moyennes par matière
       const moyennesParMatiere = {};
       toutesColonnes.forEach(col => {
-        const subjectNotes = eleveNotes.filter(note => note.subject === col.id);
+        const subjectNotes = eleveNotes.filter(note => getBaseSubjectKey(note.subject) === col.id);
         const validNotes = subjectNotes.map(note => note.grade).filter(n => n !== null && n !== undefined && !isNaN(n));
         moyennesParMatiere[col.id] = calculerMoyenne(validNotes);
       });
@@ -1022,7 +991,8 @@ EleveRow.displayName = 'EleveRow';
         setSelectedEleve={setSelectedEleve}
         onToggleTheme={onToggleTheme}
         onLogout={onLogout}
-        onProfil={() => onInspectEleve('professeur')}
+        onProfil={onProfil}
+        onTeachers={onTeachers}
         user={user}
       />
 
@@ -1211,7 +1181,7 @@ EleveRow.displayName = 'EleveRow';
                   {/* Colonnes Boker */}
                   {memoizedColonnesBoker.map(col => {
                     // Utiliser safeNotesMensuelles (garanti array)
-                    const eleveNotes = safeNotesMensuelles.filter(note => note.student_id === eleve.id && note.subject === col.id);
+                    const eleveNotes = safeNotesMensuelles.filter(note => note.student_id === eleve.id && note.subject === getWeeklySubjectKey(col.id, semaineActuelle));
                     const validNotes = eleveNotes.map(note => note.grade).filter(n => n !== null && n !== undefined && !isNaN(n));
                     const moyenne = validNotes.length > 0 
                       ? (validNotes.reduce((a, b) => a + parseFloat(b), 0) / validNotes.length).toFixed(2)
@@ -1230,15 +1200,6 @@ EleveRow.displayName = 'EleveRow';
                             onChange={(value) => updateNote(eleve.id, col.id, value)}
                             width="60px"
                           />
-                          {moyenne !== null && (
-                            <span style={{
-                              fontSize: '11px',
-                              color: '#5d4e37',
-                              minWidth: '35px'
-                            }}>
-                              {moyenne}
-                            </span>
-                          )}
                         </div>
                       </td>
                     );
@@ -1246,7 +1207,7 @@ EleveRow.displayName = 'EleveRow';
                   {/* Colonnes Formation */}
                   {memoizedColonnesFormation.map(col => {
                     // Utiliser safeNotesMensuelles (garanti array)
-                    const eleveNotes = safeNotesMensuelles.filter(note => note.student_id === eleve.id && note.subject === col.id);
+                    const eleveNotes = safeNotesMensuelles.filter(note => note.student_id === eleve.id && note.subject === getWeeklySubjectKey(col.id, semaineActuelle));
                     const validNotes = eleveNotes.map(note => note.grade).filter(n => n !== null && n !== undefined && !isNaN(n));
                     const moyenne = validNotes.length > 0 
                       ? (validNotes.reduce((a, b) => a + parseFloat(b), 0) / validNotes.length).toFixed(2)
@@ -1265,15 +1226,6 @@ EleveRow.displayName = 'EleveRow';
                             onChange={(value) => updateNote(eleve.id, col.id, value)}
                             width="60px"
                           />
-                          {moyenne !== null && (
-                            <span style={{
-                              fontSize: '11px',
-                              color: '#5d4e37',
-                              minWidth: '35px'
-                            }}>
-                              {moyenne}
-                            </span>
-                          )}
                         </div>
                       </td>
                     );
